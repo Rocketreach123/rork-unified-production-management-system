@@ -1,0 +1,290 @@
+import React from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+} from "react-native";
+import { useAuth } from "@/contexts/AuthContext";
+import { useJobs } from "@/contexts/JobContext";
+import { router } from "expo-router";
+import {
+  Package,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  TrendingUp,
+  Scan,
+} from "lucide-react-native";
+import { JobStatus } from "@/types/job";
+
+export default function DashboardScreen() {
+  const { user } = useAuth();
+  const { jobs, refreshJobs, isRefreshing } = useJobs();
+
+  const stats = {
+    total: jobs.length,
+    inProduction: jobs.filter((j) => j.status === JobStatus.IN_PRODUCTION).length,
+    completed: jobs.filter((j) => j.status === JobStatus.COMPLETED).length,
+    qcPending: jobs.filter((j) => j.status === JobStatus.QC_PENDING).length,
+  };
+
+  const recentJobs = jobs.slice(0, 5);
+
+  const getStatusColor = (status: JobStatus) => {
+    switch (status) {
+      case JobStatus.NEW:
+        return "#6b7280";
+      case JobStatus.IN_PRODUCTION:
+        return "#3b82f6";
+      case JobStatus.COMPLETED:
+        return "#10b981";
+      case JobStatus.QC_PENDING:
+        return "#f59e0b";
+      case JobStatus.QC_FAILED:
+        return "#ef4444";
+      case JobStatus.READY_TO_SHIP:
+        return "#8b5cf6";
+      case JobStatus.SHIPPED:
+        return "#059669";
+      default:
+        return "#6b7280";
+    }
+  };
+
+  return (
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={isRefreshing} onRefresh={refreshJobs} />
+      }
+    >
+      <View style={styles.header}>
+        <Text style={styles.greeting}>
+          Welcome back, {user?.name || "Operator"}
+        </Text>
+        <Text style={styles.department}>
+          {user?.role.replace("_", " ").toUpperCase()} Department
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => router.push("/scan" as any)}
+        testID="scan-button"
+      >
+        <Scan size={24} color="white" />
+        <Text style={styles.scanButtonText}>Scan Job Barcode</Text>
+      </TouchableOpacity>
+
+      <View style={styles.statsGrid}>
+        <View style={[styles.statCard, { backgroundColor: "#dbeafe" }]}>
+          <Package size={24} color="#1e40af" />
+          <Text style={styles.statNumber}>{stats.total}</Text>
+          <Text style={styles.statLabel}>Total Jobs</Text>
+        </View>
+
+        <View style={[styles.statCard, { backgroundColor: "#fef3c7" }]}>
+          <Clock size={24} color="#f59e0b" />
+          <Text style={styles.statNumber}>{stats.inProduction}</Text>
+          <Text style={styles.statLabel}>In Production</Text>
+        </View>
+
+        <View style={[styles.statCard, { backgroundColor: "#d1fae5" }]}>
+          <CheckCircle size={24} color="#10b981" />
+          <Text style={styles.statNumber}>{stats.completed}</Text>
+          <Text style={styles.statLabel}>Completed</Text>
+        </View>
+
+        <View style={[styles.statCard, { backgroundColor: "#fed7aa" }]}>
+          <AlertCircle size={24} color="#ea580c" />
+          <Text style={styles.statNumber}>{stats.qcPending}</Text>
+          <Text style={styles.statLabel}>QC Pending</Text>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent Jobs</Text>
+          <TouchableOpacity onPress={() => router.push("/jobs" as any)}>
+            <Text style={styles.viewAllText}>View All</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recentJobs.map((job) => (
+          <TouchableOpacity
+            key={job.id}
+            style={styles.jobCard}
+            onPress={() => router.push(`/job/${job.id}` as any)}
+          >
+            <View style={styles.jobHeader}>
+              <Text style={styles.jobNumber}>#{job.orderNumber}</Text>
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: getStatusColor(job.status) },
+                ]}
+              >
+                <Text style={styles.statusText}>
+                  {job.status.replace(/_/g, " ")}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.jobCustomer}>{job.customerName}</Text>
+            <View style={styles.jobMeta}>
+              <Text style={styles.jobMetaText}>
+                {job.department} • {job.quantity} units
+              </Text>
+              {job.priority && (
+                <View style={styles.priorityBadge}>
+                  <TrendingUp size={12} color="#dc2626" />
+                  <Text style={styles.priorityText}>Priority</Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#f3f4f6",
+  },
+  header: {
+    padding: 20,
+    backgroundColor: "white",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  greeting: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  department: {
+    fontSize: 14,
+    color: "#6b7280",
+  },
+  scanButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1e40af",
+    margin: 20,
+    padding: 16,
+    borderRadius: 12,
+    gap: 12,
+  },
+  scanButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    padding: 10,
+    gap: 10,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: "47%",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    gap: 8,
+  },
+  statNumber: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#111827",
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#6b7280",
+  },
+  section: {
+    padding: 20,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: "#1e40af",
+    fontWeight: "500",
+  },
+  jobCard: {
+    backgroundColor: "white",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  jobHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  jobNumber: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  statusText: {
+    fontSize: 10,
+    color: "white",
+    fontWeight: "600",
+    textTransform: "uppercase",
+  },
+  jobCustomer: {
+    fontSize: 14,
+    color: "#374151",
+    marginBottom: 8,
+  },
+  jobMeta: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  jobMetaText: {
+    fontSize: 12,
+    color: "#6b7280",
+  },
+  priorityBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#fee2e2",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  priorityText: {
+    fontSize: 10,
+    color: "#dc2626",
+    fontWeight: "600",
+  },
+});

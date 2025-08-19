@@ -17,17 +17,32 @@ import {
   Printer,
   Play,
   Pause,
+  Square,
+  AlertTriangle,
+  Upload,
 } from "lucide-react-native";
 import { useJobs } from "@/contexts/JobContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { JobStatus } from "@/types/job";
+import { JobStatus, ProductionState, SpoilageData, HoldData } from "@/types/job";
+import {
+  PauseProductionModal,
+  StopProductionModal,
+  HoldJobModal,
+  TestPrintModal,
+} from "@/components/ProductionModals";
+import { ImprintDisplay } from "@/components/ImprintDisplay";
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams();
   const { jobs, updateJobStatus } = useJobs();
   const { user } = useAuth();
   const [notes, setNotes] = useState("");
-  const [isInProduction, setIsInProduction] = useState(false);
+  const [productionState, setProductionState] = useState<ProductionState>(ProductionState.STOPPED);
+  const [showPauseModal, setShowPauseModal] = useState(false);
+  const [showStopModal, setShowStopModal] = useState(false);
+  const [showHoldModal, setShowHoldModal] = useState(false);
+  const [showTestPrintModal, setShowTestPrintModal] = useState(false);
+  const [testPrintApproved, setTestPrintApproved] = useState(false);
 
   const job = jobs.find((j) => j.id === id);
 
@@ -39,16 +54,78 @@ export default function JobDetailScreen() {
     );
   }
 
+  const handleTestPrintSubmit = (photo: string) => {
+    console.log("Test print submitted:", photo);
+    Alert.alert(
+      "Test Print Submitted", 
+      "Your test print has been sent to your supervisor for approval. You will be notified when it's reviewed.",
+      [
+        {
+          text: "OK",
+          onPress: () => {
+            updateJobStatus(job.id, JobStatus.TEST_PRINT_PENDING);
+            // Simulate supervisor approval after 3 seconds for demo
+            setTimeout(() => {
+              setTestPrintApproved(true);
+              updateJobStatus(job.id, JobStatus.TEST_PRINT_APPROVED);
+              Alert.alert("Test Print Approved", "Your supervisor has approved the test print. You can now start production.");
+            }, 3000);
+          }
+        }
+      ]
+    );
+  };
+
   const handleStartProduction = () => {
+    if (!testPrintApproved && job.status === JobStatus.NEW) {
+      setShowTestPrintModal(true);
+      return;
+    }
+    
     updateJobStatus(job.id, JobStatus.IN_PRODUCTION);
-    setIsInProduction(true);
+    setProductionState(ProductionState.RUNNING);
     Alert.alert("Production Started", `Job #${job.orderNumber} is now in production`);
   };
 
-  const handleCompleteProduction = () => {
+  const handlePauseProduction = () => {
+    setShowPauseModal(true);
+  };
+
+  const handlePauseSubmit = (data: { notes?: string; photos?: string[]; spoilageData?: SpoilageData }) => {
+    console.log("Pause data:", data);
+    setProductionState(ProductionState.PAUSED);
+    updateJobStatus(job.id, JobStatus.PAUSED);
+    Alert.alert("Production Paused", "Production has been paused and logged.");
+  };
+
+  const handleResumeProduction = () => {
+    setProductionState(ProductionState.RUNNING);
+    updateJobStatus(job.id, JobStatus.IN_PRODUCTION);
+    Alert.alert("Production Resumed", "Production has been resumed.");
+  };
+
+  const handleStopProduction = () => {
+    setShowStopModal(true);
+  };
+
+  const handleStopSubmit = (data: { notes?: string; photos?: string[]; spoilageData?: SpoilageData }) => {
+    console.log("Stop data:", data);
+    setProductionState(ProductionState.STOPPED);
     updateJobStatus(job.id, JobStatus.COMPLETED);
-    setIsInProduction(false);
     Alert.alert("Production Complete", `Job #${job.orderNumber} has been completed`);
+  };
+
+  const handleHoldJob = () => {
+    setShowHoldModal(true);
+  };
+
+  const handleHoldSubmit = (data: HoldData) => {
+    console.log("Hold data:", data);
+    updateJobStatus(job.id, JobStatus.ON_HOLD);
+    Alert.alert(
+      "Job On Hold", 
+      "Job has been placed on hold and your supervisor has been notified via Microsoft Teams."
+    );
   };
 
   const handleQCRequest = () => {
@@ -64,8 +141,16 @@ export default function JobDetailScreen() {
     switch (status) {
       case JobStatus.NEW:
         return "#6b7280";
+      case JobStatus.TEST_PRINT_PENDING:
+        return "#f59e0b";
+      case JobStatus.TEST_PRINT_APPROVED:
+        return "#10b981";
       case JobStatus.IN_PRODUCTION:
         return "#3b82f6";
+      case JobStatus.PAUSED:
+        return "#f59e0b";
+      case JobStatus.ON_HOLD:
+        return "#dc2626";
       case JobStatus.COMPLETED:
         return "#10b981";
       case JobStatus.QC_PENDING:
@@ -79,6 +164,16 @@ export default function JobDetailScreen() {
       default:
         return "#6b7280";
     }
+  };
+
+  const canStartProduction = () => {
+    return job.status === JobStatus.NEW || 
+           job.status === JobStatus.TEST_PRINT_APPROVED;
+  };
+
+  const isProductionActive = () => {
+    return job.status === JobStatus.IN_PRODUCTION || 
+           job.status === JobStatus.PAUSED;
   };
 
   return (
@@ -134,39 +229,102 @@ export default function JobDetailScreen() {
           )}
         </View>
 
+        {/* Imprint Display */}
+        <ImprintDisplay jobId={job.id} />
+
         <View style={styles.actionsCard}>
           <Text style={styles.sectionTitle}>Production Actions</Text>
           
-          {job.status === JobStatus.NEW && (
+          {/* Test Print Status */}
+          {job.status === JobStatus.TEST_PRINT_PENDING && (
+            <View style={styles.statusAlert}>
+              <Clock size={20} color="#f59e0b" />
+              <Text style={styles.statusAlertText}>
+                Test print submitted - waiting for supervisor approval
+              </Text>
+            </View>
+          )}
+
+          {job.status === JobStatus.TEST_PRINT_APPROVED && (
+            <View style={[styles.statusAlert, styles.approvedAlert]}>
+              <CheckCircle size={20} color="#10b981" />
+              <Text style={[styles.statusAlertText, styles.approvedAlertText]}>
+                Test print approved - ready to start production
+              </Text>
+            </View>
+          )}
+
+          {/* Start Production */}
+          {canStartProduction() && (
             <TouchableOpacity
               style={[styles.actionButton, styles.startButton]}
               onPress={handleStartProduction}
             >
               <Play size={20} color="white" />
-              <Text style={styles.actionButtonText}>Start Production</Text>
+              <Text style={styles.actionButtonText}>
+                {job.status === JobStatus.NEW ? "Submit Test Print" : "Start Production"}
+              </Text>
             </TouchableOpacity>
           )}
 
+          {/* Production Controls */}
           {job.status === JobStatus.IN_PRODUCTION && (
             <>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.completeButton]}
-                onPress={handleCompleteProduction}
-              >
-                <CheckCircle size={20} color="white" />
-                <Text style={styles.actionButtonText}>Mark Complete</Text>
-              </TouchableOpacity>
+              <View style={styles.productionControls}>
+                <TouchableOpacity
+                  style={[styles.controlButton, styles.pauseButton]}
+                  onPress={handlePauseProduction}
+                >
+                  <Pause size={18} color="white" />
+                  <Text style={styles.controlButtonText}>Pause</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.actionButton, styles.pauseButton]}
-                onPress={() => Alert.alert("Paused", "Production paused")}
-              >
-                <Pause size={20} color="white" />
-                <Text style={styles.actionButtonText}>Pause Production</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.controlButton, styles.stopButton]}
+                  onPress={handleStopProduction}
+                >
+                  <Square size={18} color="white" />
+                  <Text style={styles.controlButtonText}>Complete</Text>
+                </TouchableOpacity>
+              </View>
             </>
           )}
 
+          {/* Resume from Pause */}
+          {job.status === JobStatus.PAUSED && (
+            <>
+              <View style={styles.productionControls}>
+                <TouchableOpacity
+                  style={[styles.controlButton, styles.resumeButton]}
+                  onPress={handleResumeProduction}
+                >
+                  <Play size={18} color="white" />
+                  <Text style={styles.controlButtonText}>Resume</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.controlButton, styles.stopButton]}
+                  onPress={handleStopProduction}
+                >
+                  <Square size={18} color="white" />
+                  <Text style={styles.controlButtonText}>Complete</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {/* Hold Button - Always visible during production */}
+          {(isProductionActive() || canStartProduction()) && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.holdButton]}
+              onPress={handleHoldJob}
+            >
+              <AlertTriangle size={20} color="white" />
+              <Text style={styles.actionButtonText}>🚩 Hold Job</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Post-Production Actions */}
           {job.status === JobStatus.COMPLETED && (
             <>
               <TouchableOpacity
@@ -185,6 +343,16 @@ export default function JobDetailScreen() {
                 <Text style={styles.actionButtonText}>Generate Label</Text>
               </TouchableOpacity>
             </>
+          )}
+
+          {/* Hold Status */}
+          {job.status === JobStatus.ON_HOLD && (
+            <View style={[styles.statusAlert, styles.holdAlert]}>
+              <AlertTriangle size={20} color="#dc2626" />
+              <Text style={[styles.statusAlertText, styles.holdAlertText]}>
+                Job is on hold - supervisor has been notified
+              </Text>
+            </View>
           )}
 
           <TouchableOpacity style={styles.photoButton}>
@@ -229,6 +397,35 @@ export default function JobDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Modals */}
+      <PauseProductionModal
+        visible={showPauseModal}
+        onClose={() => setShowPauseModal(false)}
+        jobId={job.id}
+        onSubmit={handlePauseSubmit}
+      />
+
+      <StopProductionModal
+        visible={showStopModal}
+        onClose={() => setShowStopModal(false)}
+        jobId={job.id}
+        onSubmit={handleStopSubmit}
+      />
+
+      <HoldJobModal
+        visible={showHoldModal}
+        onClose={() => setShowHoldModal(false)}
+        jobId={job.id}
+        onSubmit={handleHoldSubmit}
+      />
+
+      <TestPrintModal
+        visible={showTestPrintModal}
+        onClose={() => setShowTestPrintModal(false)}
+        jobId={job.id}
+        onSubmit={handleTestPrintSubmit}
+      />
     </>
   );
 }
@@ -328,17 +525,75 @@ const styles = StyleSheet.create({
   startButton: {
     backgroundColor: "#3b82f6",
   },
-  completeButton: {
-    backgroundColor: "#10b981",
-  },
-  pauseButton: {
-    backgroundColor: "#f59e0b",
+  holdButton: {
+    backgroundColor: "#dc2626",
+    borderWidth: 2,
+    borderColor: "#b91c1c",
   },
   qcButton: {
     backgroundColor: "#8b5cf6",
   },
   labelButton: {
     backgroundColor: "#1e40af",
+  },
+  productionControls: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+  },
+  controlButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  pauseButton: {
+    backgroundColor: "#f59e0b",
+  },
+  resumeButton: {
+    backgroundColor: "#10b981",
+  },
+  stopButton: {
+    backgroundColor: "#dc2626",
+  },
+  controlButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  statusAlert: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "#fef3c7",
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+    gap: 8,
+    marginBottom: 12,
+  },
+  statusAlertText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#92400e",
+    fontWeight: "500",
+  },
+  approvedAlert: {
+    backgroundColor: "#d1fae5",
+    borderColor: "#10b981",
+  },
+  approvedAlertText: {
+    color: "#065f46",
+  },
+  holdAlert: {
+    backgroundColor: "#fee2e2",
+    borderColor: "#dc2626",
+  },
+  holdAlertText: {
+    color: "#991b1b",
   },
   actionButtonText: {
     color: "white",

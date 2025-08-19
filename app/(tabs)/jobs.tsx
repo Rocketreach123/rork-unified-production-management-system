@@ -31,8 +31,16 @@ export default function JobsScreen() {
     switch (status) {
       case JobStatus.NEW:
         return "#6b7280";
+      case JobStatus.TEST_PRINT_PENDING:
+        return "#f59e0b";
+      case JobStatus.TEST_PRINT_APPROVED:
+        return "#10b981";
       case JobStatus.IN_PRODUCTION:
         return "#3b82f6";
+      case JobStatus.PAUSED:
+        return "#f59e0b";
+      case JobStatus.ON_HOLD:
+        return "#dc2626";
       case JobStatus.COMPLETED:
         return "#10b981";
       case JobStatus.QC_PENDING:
@@ -101,7 +109,10 @@ export default function JobsScreen() {
   const statusFilters = [
     { label: "All", value: "all" },
     { label: "New", value: JobStatus.NEW },
+    { label: "Test Print", value: JobStatus.TEST_PRINT_PENDING },
     { label: "In Prod", value: JobStatus.IN_PRODUCTION },
+    { label: "Paused", value: JobStatus.PAUSED },
+    { label: "On Hold", value: JobStatus.ON_HOLD },
     { label: "Complete", value: JobStatus.COMPLETED },
     { label: "QC", value: JobStatus.QC_PENDING },
   ];

@@ -1,4 +1,70 @@
-import { Job, JobStatus, Department } from "@/types/job";
+import { Job, JobStatus, Department, LineItem, ImprintMockup } from "@/types/job";
+
+export const mockLineItems: LineItem[] = [
+  {
+    id: "li-1",
+    jobId: "1",
+    sku: "G500",
+    color: "Navy",
+    size: "L",
+    quantity: 100,
+    description: "Gildan Heavy Cotton T-Shirt",
+  },
+  {
+    id: "li-2",
+    jobId: "1",
+    sku: "G500",
+    color: "Navy",
+    size: "XL",
+    quantity: 150,
+    description: "Gildan Heavy Cotton T-Shirt",
+  },
+  {
+    id: "li-3",
+    jobId: "2",
+    sku: "PC78",
+    color: "Black",
+    size: "M",
+    quantity: 75,
+    description: "Port & Company Pullover Hoodie",
+  },
+  {
+    id: "li-4",
+    jobId: "2",
+    sku: "PC78",
+    color: "Black",
+    size: "L",
+    quantity: 75,
+    description: "Port & Company Pullover Hoodie",
+  },
+];
+
+export const mockImprintMockups: ImprintMockup[] = [
+  {
+    id: "im-1",
+    jobId: "1",
+    imageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400&h=400&fit=crop",
+    position: "Front Center",
+    colors: ["White", "Red"],
+    description: "Company logo with tagline",
+  },
+  {
+    id: "im-2",
+    jobId: "1",
+    imageUrl: "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=400&h=400&fit=crop",
+    position: "Back Center",
+    colors: ["White"],
+    description: "Website URL",
+  },
+  {
+    id: "im-3",
+    jobId: "2",
+    imageUrl: "https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=400&h=400&fit=crop",
+    position: "Left Chest",
+    colors: ["Gold", "Black"],
+    description: "Embroidered logo",
+  },
+];
 
 export const mockJobs: Job[] = [
   {

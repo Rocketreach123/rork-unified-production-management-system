@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   TextInput,
   Alert,
 } from "react-native";
-import { useLocalSearchParams, router, Stack } from "expo-router";
+import { useLocalSearchParams, Stack } from "expo-router";
 import {
   Clock,
   CheckCircle,
@@ -19,7 +19,6 @@ import {
   Pause,
   Square,
   AlertTriangle,
-  Upload,
 } from "lucide-react-native";
 import { useJobs } from "@/contexts/JobContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,6 +28,8 @@ import {
   StopProductionModal,
   HoldJobModal,
   TestPrintModal,
+  OperatorPinModal,
+  ImprintCompletionModal,
 } from "@/components/ProductionModals";
 import { ImprintDisplay } from "@/components/ImprintDisplay";
 
@@ -42,9 +43,25 @@ export default function JobDetailScreen() {
   const [showStopModal, setShowStopModal] = useState(false);
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [showTestPrintModal, setShowTestPrintModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [showImprintModal, setShowImprintModal] = useState(false);
   const [testPrintApproved, setTestPrintApproved] = useState(false);
+  const [isProductionMode, setIsProductionMode] = useState(false);
+  const [operatorPin, setOperatorPin] = useState<string>("");
+  const [machineId, setMachineId] = useState<string>("SP-01");
+  const [isHoldLocked, setIsHoldLocked] = useState(false);
+  const [completedImprints, setCompletedImprints] = useState<string[]>([]);
 
   const job = jobs.find((j) => j.id === id);
+
+  console.log('User:', user?.name, 'Production mode:', isProductionMode, 'Completed imprints:', completedImprints.length);
+
+  // Check if job is on hold and should be locked
+  useEffect(() => {
+    if (job) {
+      setIsHoldLocked(job.status === JobStatus.ON_HOLD);
+    }
+  }, [job]);
 
   if (!job) {
     return (
@@ -53,6 +70,16 @@ export default function JobDetailScreen() {
       </View>
     );
   }
+
+  const handleOperatorLogin = () => {
+    setShowPinModal(true);
+  };
+
+  const handlePinSubmit = (pin: string, machine: string) => {
+    setOperatorPin(pin);
+    setMachineId(machine);
+    console.log(`Operator logged in with PIN: ${pin} on machine: ${machine}`);
+  };
 
   const handleTestPrintSubmit = (photo: string) => {
     console.log("Test print submitted:", photo);
@@ -77,6 +104,11 @@ export default function JobDetailScreen() {
   };
 
   const handleStartProduction = () => {
+    if (!operatorPin) {
+      handleOperatorLogin();
+      return;
+    }
+
     if (!testPrintApproved && job.status === JobStatus.NEW) {
       setShowTestPrintModal(true);
       return;
@@ -84,7 +116,47 @@ export default function JobDetailScreen() {
     
     updateJobStatus(job.id, JobStatus.IN_PRODUCTION);
     setProductionState(ProductionState.RUNNING);
-    Alert.alert("Production Started", `Job #${job.orderNumber} is now in production`);
+    setIsProductionMode(true);
+    Alert.alert("Production Started", `Job #${job.orderNumber} is now in production on ${machineId}`);
+  };
+
+  const handleExitProductionMode = () => {
+    setIsProductionMode(false);
+  };
+
+  const handleCompleteImprints = () => {
+    setShowImprintModal(true);
+  };
+
+  const handleImprintCompletion = (completedIds: string[]) => {
+    setCompletedImprints(completedIds);
+    console.log('Completed imprints:', completedIds);
+  };
+
+  const handleManagerOverride = () => {
+    Alert.prompt(
+      "Manager Override",
+      "Enter 4-digit manager code to release hold:",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Release Hold",
+          onPress: (code) => {
+            if (code === "1234") { // Mock manager code
+              setIsHoldLocked(false);
+              updateJobStatus(job.id, JobStatus.NEW);
+              Alert.alert("Hold Released", "Job has been released from hold status.");
+            } else {
+              Alert.alert("Invalid Code", "Incorrect manager override code.");
+            }
+          }
+        }
+      ],
+      "secure-text"
+    );
   };
 
   const handlePauseProduction = () => {
@@ -328,6 +400,14 @@ export default function JobDetailScreen() {
           {job.status === JobStatus.COMPLETED && (
             <>
               <TouchableOpacity
+                style={[styles.actionButton, styles.imprintButton]}
+                onPress={handleCompleteImprints}
+              >
+                <CheckCircle size={20} color="white" />
+                <Text style={styles.actionButtonText}>Mark Imprints Complete</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={[styles.actionButton, styles.qcButton]}
                 onPress={handleQCRequest}
               >
@@ -347,12 +427,24 @@ export default function JobDetailScreen() {
 
           {/* Hold Status */}
           {job.status === JobStatus.ON_HOLD && (
-            <View style={[styles.statusAlert, styles.holdAlert]}>
-              <AlertTriangle size={20} color="#dc2626" />
-              <Text style={[styles.statusAlertText, styles.holdAlertText]}>
-                Job is on hold - supervisor has been notified
-              </Text>
-            </View>
+            <>
+              <View style={[styles.statusAlert, styles.holdAlert]}>
+                <AlertTriangle size={20} color="#dc2626" />
+                <Text style={[styles.statusAlertText, styles.holdAlertText]}>
+                  Job is on hold - supervisor has been notified
+                </Text>
+              </View>
+              
+              {isHoldLocked && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.overrideButton]}
+                  onPress={handleManagerOverride}
+                >
+                  <AlertTriangle size={20} color="white" />
+                  <Text style={styles.actionButtonText}>Manager Override</Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
 
           <TouchableOpacity style={styles.photoButton}>
@@ -425,6 +517,19 @@ export default function JobDetailScreen() {
         onClose={() => setShowTestPrintModal(false)}
         jobId={job.id}
         onSubmit={handleTestPrintSubmit}
+      />
+
+      <OperatorPinModal
+        visible={showPinModal}
+        onClose={() => setShowPinModal(false)}
+        onSubmit={handlePinSubmit}
+      />
+
+      <ImprintCompletionModal
+        visible={showImprintModal}
+        onClose={() => setShowImprintModal(false)}
+        jobId={job.id}
+        onSubmit={handleImprintCompletion}
       />
     </>
   );
@@ -535,6 +640,12 @@ const styles = StyleSheet.create({
   },
   labelButton: {
     backgroundColor: "#1e40af",
+  },
+  imprintButton: {
+    backgroundColor: "#8b5cf6",
+  },
+  overrideButton: {
+    backgroundColor: "#f59e0b",
   },
   productionControls: {
     flexDirection: "row",

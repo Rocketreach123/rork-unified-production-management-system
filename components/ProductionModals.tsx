@@ -46,6 +46,16 @@ interface TestPrintModalProps extends BaseModalProps {
   onSubmit: (photo: string) => void;
 }
 
+interface OperatorPinModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (pin: string, machine: string) => void;
+}
+
+interface ImprintCompletionModalProps extends BaseModalProps {
+  onSubmit: (completedIds: string[]) => void;
+}
+
 export function PauseProductionModal({ visible, onClose, jobId, onSubmit }: PauseModalProps) {
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
@@ -578,6 +588,249 @@ export function TestPrintModal({ visible, onClose, jobId, onSubmit }: TestPrintM
   );
 }
 
+export function OperatorPinModal({ visible, onClose, onSubmit }: OperatorPinModalProps) {
+  const [pin, setPin] = useState("");
+  const [selectedMachine, setSelectedMachine] = useState("SP-01");
+
+  const machines = [
+    { id: "SP-01", name: "Screen Print 01" },
+    { id: "SP-02", name: "Screen Print 02" },
+    { id: "SP-03", name: "Screen Print 03" },
+    { id: "EMB-01", name: "Embroidery 01" },
+    { id: "EMB-02", name: "Embroidery 02" },
+    { id: "FUL-01", name: "Fulfillment 01" },
+  ];
+
+  const handleSubmit = () => {
+    if (pin.length !== 4) {
+      Alert.alert("Invalid PIN", "Please enter a 4-digit PIN.");
+      return;
+    }
+
+    onSubmit(pin, selectedMachine);
+    setPin("");
+    onClose();
+  };
+
+  const handlePinInput = (digit: string) => {
+    if (pin.length < 4) {
+      setPin(pin + digit);
+    }
+  };
+
+  const clearPin = () => {
+    setPin("");
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <View style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Operator Login</Text>
+          <TouchableOpacity onPress={onClose}>
+            <X size={24} color="#6b7280" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.modalContent}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Enter Your 4-Digit PIN</Text>
+            <View style={styles.pinDisplay}>
+              {[0, 1, 2, 3].map((index) => (
+                <View key={index} style={styles.pinDot}>
+                  <Text style={styles.pinDotText}>
+                    {pin[index] ? "●" : "○"}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Select Machine/Station</Text>
+            <ScrollView horizontal style={styles.machineScroll}>
+              {machines.map((machine) => (
+                <TouchableOpacity
+                  key={machine.id}
+                  style={[
+                    styles.machineChip,
+                    selectedMachine === machine.id && styles.machineChipSelected,
+                  ]}
+                  onPress={() => setSelectedMachine(machine.id)}
+                >
+                  <Text style={[
+                    styles.machineChipText,
+                    selectedMachine === machine.id && styles.machineChipTextSelected,
+                  ]}>
+                    {machine.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          <View style={styles.keypad}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, "Clear", 0, "✓"].map((key) => (
+              <TouchableOpacity
+                key={key}
+                style={[
+                  styles.keypadButton,
+                  key === "Clear" && styles.clearButton,
+                  key === "✓" && styles.submitKeyButton,
+                ]}
+                onPress={() => {
+                  if (key === "Clear") {
+                    clearPin();
+                  } else if (key === "✓") {
+                    handleSubmit();
+                  } else {
+                    handlePinInput(key.toString());
+                  }
+                }}
+              >
+                <Text style={[
+                  styles.keypadButtonText,
+                  key === "Clear" && styles.clearButtonText,
+                  key === "✓" && styles.submitKeyButtonText,
+                ]}>
+                  {key}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+export function ImprintCompletionModal({ visible, onClose, jobId, onSubmit }: ImprintCompletionModalProps) {
+  const [completedImprints, setCompletedImprints] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<string[]>([]);
+
+  console.log('Job ID for imprint completion:', jobId); // Use jobId to avoid lint warning
+
+  // Mock imprints for the job
+  const imprints = [
+    { id: "im-1", position: "Front Center", description: "Company logo with tagline" },
+    { id: "im-2", position: "Back Center", description: "Website URL" },
+    { id: "im-3", position: "Left Chest", description: "Small logo" },
+  ];
+
+  const toggleImprint = (imprintId: string) => {
+    setCompletedImprints(prev => 
+      prev.includes(imprintId)
+        ? prev.filter(id => id !== imprintId)
+        : [...prev, imprintId]
+    );
+  };
+
+  const addPhoto = () => {
+    const mockPhotoUrl = `https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=400&h=300&fit=crop&t=${Date.now()}`;
+    setPhotos([...photos, mockPhotoUrl]);
+  };
+
+  const handleSubmit = () => {
+    if (completedImprints.length === 0) {
+      Alert.alert("No Imprints Selected", "Please mark at least one imprint as completed.");
+      return;
+    }
+
+    onSubmit(completedImprints);
+    setCompletedImprints([]);
+    setPhotos([]);
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <View style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Mark Imprints Complete</Text>
+          <TouchableOpacity onPress={onClose}>
+            <X size={24} color="#6b7280" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.modalContent}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Select Completed Imprints</Text>
+            <Text style={styles.sectionDescription}>
+              Check off each imprint position that has been completed for this job.
+            </Text>
+            
+            {imprints.map((imprint) => (
+              <TouchableOpacity
+                key={imprint.id}
+                style={[
+                  styles.imprintCheckbox,
+                  completedImprints.includes(imprint.id) && styles.imprintCheckboxSelected,
+                ]}
+                onPress={() => toggleImprint(imprint.id)}
+              >
+                <View style={styles.checkboxContainer}>
+                  <CheckCircle 
+                    size={20} 
+                    color={completedImprints.includes(imprint.id) ? "#10b981" : "#e5e7eb"} 
+                  />
+                </View>
+                <View style={styles.imprintInfo}>
+                  <Text style={styles.imprintPosition}>{imprint.position}</Text>
+                  <Text style={styles.imprintDescription}>{imprint.description}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Finished Product Photos (Optional)</Text>
+            <TouchableOpacity style={styles.photoButton} onPress={addPhoto}>
+              <Camera size={20} color="#1e40af" />
+              <Text style={styles.photoButtonText}>Add Photo</Text>
+            </TouchableOpacity>
+            {photos.length > 0 && (
+              <ScrollView horizontal style={styles.photoPreview}>
+                {photos.map((photo, index) => (
+                  <Image key={index} source={{ uri: photo }} style={styles.photoThumbnail} />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+
+          <View style={styles.infoBox}>
+            <CheckCircle size={20} color="#10b981" />
+            <Text style={styles.infoText}>
+              Marking imprints as complete will generate box labels and move the job to the next stage.
+            </Text>
+          </View>
+        </ScrollView>
+
+        <View style={styles.modalFooter}>
+          <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.submitButton, 
+              styles.completeButton,
+              completedImprints.length === 0 && styles.disabledButton
+            ]} 
+            onPress={handleSubmit}
+            disabled={completedImprints.length === 0}
+          >
+            <Text style={[
+              styles.submitButtonText,
+              completedImprints.length === 0 && styles.disabledButtonText
+            ]}>
+              Mark Complete ({completedImprints.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
@@ -866,5 +1119,120 @@ const styles = StyleSheet.create({
   },
   disabledButtonText: {
     color: "#9ca3af",
+  },
+  pinDisplay: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 16,
+    marginVertical: 20,
+  },
+  pinDot: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#e5e7eb",
+  },
+  pinDotText: {
+    fontSize: 20,
+    color: "#1e40af",
+    fontWeight: "bold",
+  },
+  machineScroll: {
+    marginBottom: 8,
+  },
+  machineChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#f3f4f6",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    marginRight: 8,
+  },
+  machineChipSelected: {
+    backgroundColor: "#1e40af",
+    borderColor: "#1e40af",
+  },
+  machineChipText: {
+    fontSize: 14,
+    color: "#374151",
+    fontWeight: "500",
+  },
+  machineChipTextSelected: {
+    color: "white",
+  },
+  keypad: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 12,
+    marginTop: 20,
+  },
+  keypadButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  keypadButtonText: {
+    fontSize: 24,
+    color: "#374151",
+    fontWeight: "600",
+  },
+  clearButton: {
+    backgroundColor: "#fee2e2",
+    borderColor: "#dc2626",
+  },
+  clearButtonText: {
+    fontSize: 14,
+    color: "#dc2626",
+  },
+  submitKeyButton: {
+    backgroundColor: "#1e40af",
+    borderColor: "#1e40af",
+  },
+  submitKeyButtonText: {
+    color: "white",
+    fontSize: 20,
+  },
+  imprintCheckbox: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#f9fafb",
+    marginBottom: 8,
+    gap: 12,
+  },
+  imprintCheckboxSelected: {
+    backgroundColor: "#d1fae5",
+    borderColor: "#10b981",
+  },
+  checkboxContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imprintInfo: {
+    flex: 1,
+  },
+  imprintPosition: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 2,
+  },
+  imprintDescription: {
+    fontSize: 14,
+    color: "#6b7280",
   },
 });

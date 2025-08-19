@@ -29,39 +29,42 @@ export default function DashboardScreen() {
   // Filter jobs based on user role - operators only see jobs relevant to their department
   const relevantJobs = useMemo(() => {
     if (!user) return jobs;
-    
-    // Admin sees all jobs
-    if (user.role === UserRole.ADMIN) {
-      return jobs;
-    }
-    
-    // QC sees jobs that need QC or have QC issues
-    if (user.role === UserRole.QC) {
-      return jobs.filter(job => 
+
+    if (user.role === UserRole.ADMIN) return jobs;
+
+    if (user.role === UserRole.QC_CHECKER) {
+      return jobs.filter(job =>
         job.status === JobStatus.QC_PENDING ||
         job.status === JobStatus.QC_FAILED ||
         job.status === JobStatus.COMPLETED
       );
     }
-    
-    // Shipping sees jobs ready to ship
+
     if (user.role === UserRole.SHIPPING) {
-      return jobs.filter(job => 
+      return jobs.filter(job =>
         job.status === JobStatus.READY_TO_SHIP ||
         job.status === JobStatus.QC_PASSED
       );
     }
-    
-    // Production operators see jobs for their department
-    const departmentMap = {
-      [UserRole.SCREEN_PRINT]: Department.SCREEN_PRINT,
-      [UserRole.EMBROIDERY]: Department.EMBROIDERY,
-      [UserRole.FULFILLMENT]: Department.FULFILLMENT,
+
+    const departmentForRole = (role: UserRole): Department | null => {
+      switch (role) {
+        case UserRole.OPERATOR_SCREEN_PRINT:
+        case UserRole.PACKER_SCREEN_PRINT:
+          return Department.SCREEN_PRINT;
+        case UserRole.OPERATOR_EMBROIDERY:
+        case UserRole.PACKER_EMBROIDERY:
+          return Department.EMBROIDERY;
+        case UserRole.OPERATOR_FULFILLMENT:
+          return Department.FULFILLMENT;
+        default:
+          return null;
+      }
     };
-    
-    const userDepartment = departmentMap[user.role as keyof typeof departmentMap];
+
+    const userDepartment = departmentForRole(user.role);
     if (userDepartment) {
-      return jobs.filter(job => 
+      return jobs.filter(job =>
         job.department === userDepartment && (
           job.status === JobStatus.PREPRODUCTION ||
           job.status === JobStatus.NEW ||
@@ -73,22 +76,7 @@ export default function DashboardScreen() {
         )
       );
     }
-    
-    // Screen room sees all jobs that might need screens
-    if (user.role === UserRole.SCREEN_ROOM) {
-      return jobs.filter(job => 
-        job.status === JobStatus.NEW ||
-        job.status === JobStatus.PREPRODUCTION
-      );
-    }
-    
-    // Preproduction sees new jobs
-    if (user.role === UserRole.PREPRODUCTION) {
-      return jobs.filter(job => 
-        job.status === JobStatus.NEW
-      );
-    }
-    
+
     return jobs;
   }, [jobs, user]);
 

@@ -28,7 +28,8 @@ import { trpc } from "@/lib/trpc";
 import type { QCStatus, QCService, QCPhase } from "@/types/qc";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { ImprintDisplay } from "@/components/ImprintDisplay";
-import { mockLineItems } from "@/mocks/jobs";
+import { mockLineItems, mockImprintMockups } from "@/mocks/jobs";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface SpoilageEntry {
   id: string;
@@ -59,6 +60,7 @@ const failReasonOptions: string[] = [
 
 export default function QCScreen() {
   const { jobs, updateJobStatus } = useJobs();
+  const { user } = useAuth();
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [qcMode, setQcMode] = useState<"live" | "recheck">("live");
   const [notes, setNotes] = useState<string>("");
@@ -90,6 +92,13 @@ export default function QCScreen() {
   ), [jobs]);
 
   const currentJob = selectedJob ? jobs.find((j) => j.id === selectedJob) ?? null : null;
+
+  const pendingTestPrints = trpc.testprint.list.useQuery({ status: "pending" });
+  const approveMutation = trpc.testprint.approve.useMutation();
+  const denyMutation = trpc.testprint.deny.useMutation();
+
+  const [reviewVisible, setReviewVisible] = useState<boolean>(false);
+  const [reviewIdx, setReviewIdx] = useState<number>(-1);
 
   const initialChecklist: ChecklistItem[] = [
     { id: "alignment", label: "Alignment correct", icon: <Grid size={18} color="#111827" />, checked: false },
@@ -277,6 +286,27 @@ export default function QCScreen() {
           <Text style={styles.scanButtonText}>Scan Job for QC</Text>
         </TouchableOpacity>
 
+        {(user?.role === "admin" || user?.role === "qc_checker") && (
+          <View style={styles.jobsList}>
+            <Text style={styles.sectionTitle}>Test Prints Awaiting Approval</Text>
+            {pendingTestPrints.data?.length ? pendingTestPrints.data.map((tp, idx) => {
+              const job = jobs.find((j) => j.orderNumber === tp.orderNumber);
+              const mock = job ? mockImprintMockups.find((m) => m.jobId === job.id) : undefined;
+              return (
+                <TouchableOpacity key={tp.id} style={styles.jobCard} onPress={() => { setReviewIdx(idx); setReviewVisible(true); }}>
+                  <View style={styles.jobCardHeader}>
+                    <Text style={styles.jobNumber}>#{tp.orderNumber}</Text>
+                    <Text style={styles.jobCustomer}>{job?.customerName ?? "Unknown Job"}</Text>
+                  </View>
+                  <Text style={styles.jobMeta}>{job?.department ?? ""} • {job?.quantity ?? 0} units</Text>
+                </TouchableOpacity>
+              );
+            }) : (
+              <Text style={{ color: '#6b7280' }}>No pending test prints.</Text>
+            )}
+          </View>
+        )}
+
         <View style={styles.jobsList}>
           <Text style={styles.sectionTitle}>Pending QC</Text>
           {qcPendingJobs.map((job) => (
@@ -296,6 +326,68 @@ export default function QCScreen() {
             </TouchableOpacity>
           ))}
         </View>
+        {reviewVisible && reviewIdx > -1 && (
+          <Modal transparent animationType="fade" visible={reviewVisible} onRequestClose={() => setReviewVisible(false)}>
+            <View style={styles.guideOverlay}>
+              <View style={styles.reviewCard}>
+                <Text style={styles.guideTitle}>Review Test Print</Text>
+                {(() => {
+                  const tp = pendingTestPrints.data?.[reviewIdx];
+                  const job = tp ? jobs.find((j) => j.orderNumber === tp.orderNumber) : undefined;
+                  const mock = job ? mockImprintMockups.find((m) => m.jobId === job.id) : undefined;
+                  return (
+                    <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 12 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', color: '#111827', marginBottom: 6 }}>Approved Mockup</Text>
+                        {mock ? (
+                          <Image source={{ uri: mock.imageUrl }} style={{ width: '100%', height: 180, borderRadius: 8 }} />
+                        ) : (
+                          <View style={{ width: '100%', height: 180, backgroundColor: '#f3f4f6', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ color: '#6b7280' }}>No mockup</Text>
+                          </View>
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', color: '#111827', marginBottom: 6 }}>Submitted Photo</Text>
+                        {tp?.photo ? (
+                          <Image source={{ uri: tp.photo }} style={{ width: '100%', height: 180, borderRadius: 8 }} />
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })()}
+
+                <View style={styles.guideActions}>
+                  <TouchableOpacity style={[styles.controlBtn]} onPress={() => setReviewVisible(false)}>
+                    <Text style={styles.controlBtnText}>Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.controlBtn, { backgroundColor: '#10b981' }]} onPress={async () => {
+                    const tp = pendingTestPrints.data?.[reviewIdx];
+                    if (!tp) return;
+                    await approveMutation.mutateAsync({ id: tp.id });
+                    const job = jobs.find((j) => j.orderNumber === tp.orderNumber);
+                    if (job) updateJobStatus(job.id, JobStatus.TEST_PRINT_APPROVED);
+                    setReviewVisible(false);
+                    pendingTestPrints.refetch();
+                  }}>
+                    <Text style={styles.controlBtnText}>Approve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.controlBtn, { backgroundColor: '#ef4444' }]} onPress={async () => {
+                    const tp = pendingTestPrints.data?.[reviewIdx];
+                    if (!tp) return;
+                    await denyMutation.mutateAsync({ id: tp.id });
+                    const job = jobs.find((j) => j.orderNumber === tp.orderNumber);
+                    if (job) updateJobStatus(job.id, JobStatus.NEW);
+                    setReviewVisible(false);
+                    pendingTestPrints.refetch();
+                  }}>
+                    <Text style={styles.controlBtnText}>Reject</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </ScrollView>
     );
   }
@@ -690,6 +782,7 @@ const styles = StyleSheet.create({
 
   guideOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 16 },
   guideCard: { width: '100%', maxWidth: 520, backgroundColor: 'white', borderRadius: 16, overflow: 'hidden' },
+  reviewCard: { width: '100%', maxWidth: 640, backgroundColor: 'white', borderRadius: 16, overflow: 'hidden' },
   guideTitle: { fontSize: 18, fontWeight: '700', color: '#111827', padding: 16 },
   guideImage: { width: '100%', height: 160 },
   guideSteps: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 6 },

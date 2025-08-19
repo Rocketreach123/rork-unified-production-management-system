@@ -32,6 +32,7 @@ import {
   ImprintCompletionModal,
 } from "@/components/ProductionModals";
 import { ImprintDisplay } from "@/components/ImprintDisplay";
+import { trpc } from "@/lib/trpc";
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -46,6 +47,7 @@ export default function JobDetailScreen() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [showImprintModal, setShowImprintModal] = useState(false);
   const [testPrintApproved, setTestPrintApproved] = useState(false);
+  const submitTestPrint = trpc.testprint.submit.useMutation();
   const [isProductionMode, setIsProductionMode] = useState(false);
   const [operatorPin, setOperatorPin] = useState<string>("");
   const [machineId, setMachineId] = useState<string>("SP-01");
@@ -81,26 +83,23 @@ export default function JobDetailScreen() {
     console.log(`Operator logged in with PIN: ${pin} on machine: ${machine}`);
   };
 
-  const handleTestPrintSubmit = (photo: string) => {
-    console.log("Test print submitted:", photo);
-    Alert.alert(
-      "Test Print Submitted", 
-      "Your test print has been sent to your supervisor for approval. You will be notified when it's reviewed.",
-      [
-        {
-          text: "OK",
-          onPress: () => {
-            updateJobStatus(job.id, JobStatus.TEST_PRINT_PENDING);
-            // Simulate supervisor approval after 3 seconds for demo
-            setTimeout(() => {
-              setTestPrintApproved(true);
-              updateJobStatus(job.id, JobStatus.TEST_PRINT_APPROVED);
-              Alert.alert("Test Print Approved", "Your supervisor has approved the test print. You can now start production.");
-            }, 3000);
-          }
-        }
-      ]
-    );
+  const handleTestPrintSubmit = async (photo: string) => {
+    try {
+      await submitTestPrint.mutateAsync({
+        jobId: job.id,
+        orderNumber: job.orderNumber,
+        operatorId: user?.id,
+        pressId: job.machineId ?? machineId,
+        photo,
+      });
+      updateJobStatus(job.id, JobStatus.TEST_PRINT_PENDING);
+      Alert.alert(
+        "Submitted",
+        "Test print sent to supervisor. You'll be notified when it's reviewed."
+      );
+    } catch (e) {
+      Alert.alert("Error", "Failed to submit test print. Please try again.");
+    }
   };
 
   const handleStartProduction = () => {

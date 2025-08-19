@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -9,16 +9,85 @@ import {
   RefreshControl,
 } from "react-native";
 import { useJobs } from "@/contexts/JobContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { router } from "expo-router";
-import { Search, Filter, Package } from "lucide-react-native";
-import { JobStatus, Job } from "@/types/job";
+import { Search, Filter, Package, AlertCircle } from "lucide-react-native";
+import { JobStatus, Job, Department } from "@/types/job";
+import { UserRole } from "@/types/auth";
 
 export default function JobsScreen() {
   const { jobs, refreshJobs, isRefreshing } = useJobs();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<JobStatus | "all">("all");
 
-  const filteredJobs = jobs.filter((job) => {
+  // Filter jobs based on user role - operators only see jobs relevant to their department
+  const relevantJobs = useMemo(() => {
+    if (!user) return jobs;
+    
+    // Admin sees all jobs
+    if (user.role === UserRole.ADMIN) {
+      return jobs;
+    }
+    
+    // QC sees jobs that need QC or have QC issues
+    if (user.role === UserRole.QC) {
+      return jobs.filter(job => 
+        job.status === JobStatus.QC_PENDING ||
+        job.status === JobStatus.QC_FAILED ||
+        job.status === JobStatus.COMPLETED
+      );
+    }
+    
+    // Shipping sees jobs ready to ship
+    if (user.role === UserRole.SHIPPING) {
+      return jobs.filter(job => 
+        job.status === JobStatus.READY_TO_SHIP ||
+        job.status === JobStatus.QC_PASSED
+      );
+    }
+    
+    // Production operators see jobs for their department
+    const departmentMap = {
+      [UserRole.SCREEN_PRINT]: Department.SCREEN_PRINT,
+      [UserRole.EMBROIDERY]: Department.EMBROIDERY,
+      [UserRole.FULFILLMENT]: Department.FULFILLMENT,
+    };
+    
+    const userDepartment = departmentMap[user.role as keyof typeof departmentMap];
+    if (userDepartment) {
+      return jobs.filter(job => 
+        job.department === userDepartment && (
+          job.status === JobStatus.PREPRODUCTION ||
+          job.status === JobStatus.NEW ||
+          job.status === JobStatus.TEST_PRINT_PENDING ||
+          job.status === JobStatus.TEST_PRINT_APPROVED ||
+          job.status === JobStatus.IN_PRODUCTION ||
+          job.status === JobStatus.PAUSED ||
+          job.status === JobStatus.ON_HOLD
+        )
+      );
+    }
+    
+    // Screen room sees all jobs that might need screens
+    if (user.role === UserRole.SCREEN_ROOM) {
+      return jobs.filter(job => 
+        job.status === JobStatus.NEW ||
+        job.status === JobStatus.PREPRODUCTION
+      );
+    }
+    
+    // Preproduction sees new jobs
+    if (user.role === UserRole.PREPRODUCTION) {
+      return jobs.filter(job => 
+        job.status === JobStatus.NEW
+      );
+    }
+    
+    return jobs;
+  }, [jobs, user]);
+
+  const filteredJobs = relevantJobs.filter((job) => {
     const matchesSearch =
       job.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.customerName.toLowerCase().includes(searchQuery.toLowerCase());
@@ -31,6 +100,8 @@ export default function JobsScreen() {
     switch (status) {
       case JobStatus.NEW:
         return "#6b7280";
+      case JobStatus.PREPRODUCTION:
+        return "#0ea5e9";
       case JobStatus.TEST_PRINT_PENDING:
         return "#f59e0b";
       case JobStatus.TEST_PRINT_APPROVED:
@@ -45,6 +116,8 @@ export default function JobsScreen() {
         return "#10b981";
       case JobStatus.QC_PENDING:
         return "#f59e0b";
+      case JobStatus.QC_PASSED:
+        return "#10b981";
       case JobStatus.QC_FAILED:
         return "#ef4444";
       case JobStatus.READY_TO_SHIP:
@@ -106,16 +179,65 @@ export default function JobsScreen() {
     </TouchableOpacity>
   );
 
-  const statusFilters = [
-    { label: "All", value: "all" },
-    { label: "New", value: JobStatus.NEW },
-    { label: "Test Print", value: JobStatus.TEST_PRINT_PENDING },
-    { label: "In Prod", value: JobStatus.IN_PRODUCTION },
-    { label: "Paused", value: JobStatus.PAUSED },
-    { label: "On Hold", value: JobStatus.ON_HOLD },
-    { label: "Complete", value: JobStatus.COMPLETED },
-    { label: "QC", value: JobStatus.QC_PENDING },
-  ];
+  // Dynamic status filters based on user role
+  const statusFilters = useMemo(() => {
+    const baseFilters = [{ label: "All", value: "all" }];
+    
+    if (!user) return baseFilters;
+    
+    if (user.role === UserRole.ADMIN) {
+      return [
+        ...baseFilters,
+        { label: "New", value: JobStatus.NEW },
+        { label: "Preproduction", value: JobStatus.PREPRODUCTION },
+        { label: "Test Print", value: JobStatus.TEST_PRINT_PENDING },
+        { label: "In Prod", value: JobStatus.IN_PRODUCTION },
+        { label: "Paused", value: JobStatus.PAUSED },
+        { label: "On Hold", value: JobStatus.ON_HOLD },
+        { label: "Complete", value: JobStatus.COMPLETED },
+        { label: "QC", value: JobStatus.QC_PENDING },
+        { label: "Ready", value: JobStatus.READY_TO_SHIP },
+        { label: "Shipped", value: JobStatus.SHIPPED },
+      ];
+    }
+    
+    if (user.role === UserRole.QC) {
+      return [
+        ...baseFilters,
+        { label: "QC Pending", value: JobStatus.QC_PENDING },
+        { label: "QC Failed", value: JobStatus.QC_FAILED },
+        { label: "Complete", value: JobStatus.COMPLETED },
+      ];
+    }
+    
+    if (user.role === UserRole.SHIPPING) {
+      return [
+        ...baseFilters,
+        { label: "Ready to Ship", value: JobStatus.READY_TO_SHIP },
+        { label: "QC Passed", value: JobStatus.QC_PASSED },
+      ];
+    }
+    
+    // Production operators
+    const productionRoles = [UserRole.SCREEN_PRINT, UserRole.EMBROIDERY, UserRole.FULFILLMENT];
+    if (productionRoles.includes(user.role)) {
+      return [
+        ...baseFilters,
+        { label: "Ready to Start", value: JobStatus.PREPRODUCTION },
+        { label: "New", value: JobStatus.NEW },
+        { label: "Test Print", value: JobStatus.TEST_PRINT_PENDING },
+        { label: "In Production", value: JobStatus.IN_PRODUCTION },
+        { label: "Paused", value: JobStatus.PAUSED },
+        { label: "On Hold", value: JobStatus.ON_HOLD },
+      ];
+    }
+    
+    return [
+      ...baseFilters,
+      { label: "New", value: JobStatus.NEW },
+      { label: "Preproduction", value: JobStatus.PREPRODUCTION },
+    ];
+  }, [user]);
 
   return (
     <View style={styles.container}>
@@ -172,7 +294,19 @@ export default function JobsScreen() {
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Package size={48} color="#9ca3af" />
-            <Text style={styles.emptyText}>No jobs found</Text>
+            <Text style={styles.emptyText}>
+              {user?.role === UserRole.ADMIN 
+                ? "No jobs found" 
+                : "No jobs available for your department"}
+            </Text>
+            {user?.role !== UserRole.ADMIN && (
+              <View style={styles.operatorHint}>
+                <AlertCircle size={16} color="#6b7280" />
+                <Text style={styles.hintText}>
+                  You only see jobs relevant to your role: {user?.role.replace(/_/g, ' ')}
+                </Text>
+              </View>
+            )}
           </View>
         }
       />
@@ -318,5 +452,19 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: "#9ca3af",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  operatorHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  hintText: {
+    fontSize: 14,
+    color: "#6b7280",
+    textAlign: "center",
+    flex: 1,
   },
 });

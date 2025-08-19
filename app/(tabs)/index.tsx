@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   View,
   Text,
@@ -17,32 +17,133 @@ import {
   AlertCircle,
   TrendingUp,
   Scan,
+  Play,
 } from "lucide-react-native";
-import { JobStatus } from "@/types/job";
+import { JobStatus, Department } from "@/types/job";
+import { UserRole } from "@/types/auth";
 
 export default function DashboardScreen() {
   const { user } = useAuth();
   const { jobs, refreshJobs, isRefreshing } = useJobs();
 
+  // Filter jobs based on user role - operators only see jobs relevant to their department
+  const relevantJobs = useMemo(() => {
+    if (!user) return jobs;
+    
+    // Admin sees all jobs
+    if (user.role === UserRole.ADMIN) {
+      return jobs;
+    }
+    
+    // QC sees jobs that need QC or have QC issues
+    if (user.role === UserRole.QC) {
+      return jobs.filter(job => 
+        job.status === JobStatus.QC_PENDING ||
+        job.status === JobStatus.QC_FAILED ||
+        job.status === JobStatus.COMPLETED
+      );
+    }
+    
+    // Shipping sees jobs ready to ship
+    if (user.role === UserRole.SHIPPING) {
+      return jobs.filter(job => 
+        job.status === JobStatus.READY_TO_SHIP ||
+        job.status === JobStatus.QC_PASSED
+      );
+    }
+    
+    // Production operators see jobs for their department
+    const departmentMap = {
+      [UserRole.SCREEN_PRINT]: Department.SCREEN_PRINT,
+      [UserRole.EMBROIDERY]: Department.EMBROIDERY,
+      [UserRole.FULFILLMENT]: Department.FULFILLMENT,
+    };
+    
+    const userDepartment = departmentMap[user.role as keyof typeof departmentMap];
+    if (userDepartment) {
+      return jobs.filter(job => 
+        job.department === userDepartment && (
+          job.status === JobStatus.PREPRODUCTION ||
+          job.status === JobStatus.NEW ||
+          job.status === JobStatus.TEST_PRINT_PENDING ||
+          job.status === JobStatus.TEST_PRINT_APPROVED ||
+          job.status === JobStatus.IN_PRODUCTION ||
+          job.status === JobStatus.PAUSED ||
+          job.status === JobStatus.ON_HOLD
+        )
+      );
+    }
+    
+    // Screen room sees all jobs that might need screens
+    if (user.role === UserRole.SCREEN_ROOM) {
+      return jobs.filter(job => 
+        job.status === JobStatus.NEW ||
+        job.status === JobStatus.PREPRODUCTION
+      );
+    }
+    
+    // Preproduction sees new jobs
+    if (user.role === UserRole.PREPRODUCTION) {
+      return jobs.filter(job => 
+        job.status === JobStatus.NEW
+      );
+    }
+    
+    return jobs;
+  }, [jobs, user]);
+
   const stats = {
-    total: jobs.length,
-    inProduction: jobs.filter((j) => j.status === JobStatus.IN_PRODUCTION).length,
-    completed: jobs.filter((j) => j.status === JobStatus.COMPLETED).length,
-    qcPending: jobs.filter((j) => j.status === JobStatus.QC_PENDING).length,
+    total: relevantJobs.length,
+    readyToStart: relevantJobs.filter((j) => j.status === JobStatus.PREPRODUCTION).length,
+    inProduction: relevantJobs.filter((j) => j.status === JobStatus.IN_PRODUCTION).length,
+    completed: relevantJobs.filter((j) => j.status === JobStatus.COMPLETED).length,
+    qcPending: relevantJobs.filter((j) => j.status === JobStatus.QC_PENDING).length,
   };
 
-  const recentJobs = jobs.slice(0, 5);
+  // Show jobs ready to start for operators, or recent jobs for admin
+  const displayJobs = useMemo(() => {
+    if (!user || user.role === UserRole.ADMIN) {
+      return relevantJobs.slice(0, 5);
+    }
+    
+    // For operators, prioritize jobs ready to start
+    const readyJobs = relevantJobs.filter(job => 
+      job.status === JobStatus.PREPRODUCTION ||
+      job.status === JobStatus.TEST_PRINT_APPROVED
+    );
+    
+    const inProgressJobs = relevantJobs.filter(job => 
+      job.status === JobStatus.IN_PRODUCTION ||
+      job.status === JobStatus.PAUSED ||
+      job.status === JobStatus.ON_HOLD
+    );
+    
+    // Show ready jobs first, then in-progress jobs
+    return [...readyJobs, ...inProgressJobs].slice(0, 5);
+  }, [relevantJobs, user]);
 
   const getStatusColor = (status: JobStatus) => {
     switch (status) {
       case JobStatus.NEW:
         return "#6b7280";
+      case JobStatus.PREPRODUCTION:
+        return "#0ea5e9";
+      case JobStatus.TEST_PRINT_PENDING:
+        return "#f59e0b";
+      case JobStatus.TEST_PRINT_APPROVED:
+        return "#10b981";
       case JobStatus.IN_PRODUCTION:
         return "#3b82f6";
+      case JobStatus.PAUSED:
+        return "#f59e0b";
+      case JobStatus.ON_HOLD:
+        return "#dc2626";
       case JobStatus.COMPLETED:
         return "#10b981";
       case JobStatus.QC_PENDING:
         return "#f59e0b";
+      case JobStatus.QC_PASSED:
+        return "#10b981";
       case JobStatus.QC_FAILED:
         return "#ef4444";
       case JobStatus.READY_TO_SHIP:
@@ -86,6 +187,12 @@ export default function DashboardScreen() {
           <Text style={styles.statLabel}>Total Jobs</Text>
         </View>
 
+        <View style={[styles.statCard, { backgroundColor: "#dcfce7" }]}>
+          <Play size={24} color="#16a34a" />
+          <Text style={styles.statNumber}>{stats.readyToStart}</Text>
+          <Text style={styles.statLabel}>Ready to Start</Text>
+        </View>
+
         <View style={[styles.statCard, { backgroundColor: "#fef3c7" }]}>
           <Clock size={24} color="#f59e0b" />
           <Text style={styles.statNumber}>{stats.inProduction}</Text>
@@ -97,23 +204,34 @@ export default function DashboardScreen() {
           <Text style={styles.statNumber}>{stats.completed}</Text>
           <Text style={styles.statLabel}>Completed</Text>
         </View>
-
-        <View style={[styles.statCard, { backgroundColor: "#fed7aa" }]}>
-          <AlertCircle size={24} color="#ea580c" />
-          <Text style={styles.statNumber}>{stats.qcPending}</Text>
-          <Text style={styles.statLabel}>QC Pending</Text>
-        </View>
       </View>
 
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent Jobs</Text>
+          <Text style={styles.sectionTitle}>
+            {user?.role === UserRole.ADMIN ? "Recent Jobs" : "Your Jobs"}
+          </Text>
           <TouchableOpacity onPress={() => router.push("/jobs" as any)}>
             <Text style={styles.viewAllText}>View All</Text>
           </TouchableOpacity>
         </View>
 
-        {recentJobs.map((job) => (
+        {displayJobs.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Package size={48} color="#9ca3af" />
+            <Text style={styles.emptyText}>
+              {user?.role === UserRole.ADMIN 
+                ? "No jobs found" 
+                : "No jobs ready for production"}
+            </Text>
+            {user?.role !== UserRole.ADMIN && (
+              <Text style={styles.hintText}>
+                Jobs will appear here when they're ready for your department
+              </Text>
+            )}
+          </View>
+        ) : (
+          displayJobs.map((job) => (
           <TouchableOpacity
             key={job.id}
             style={styles.jobCard}
@@ -145,7 +263,8 @@ export default function DashboardScreen() {
               )}
             </View>
           </TouchableOpacity>
-        ))}
+        ))
+        )}
       </View>
     </ScrollView>
   );
@@ -286,5 +405,23 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#dc2626",
     fontWeight: "600",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 32,
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#9ca3af",
+    textAlign: "center",
+    fontWeight: "500",
+  },
+  hintText: {
+    fontSize: 14,
+    color: "#6b7280",
+    textAlign: "center",
+    paddingHorizontal: 32,
   },
 });

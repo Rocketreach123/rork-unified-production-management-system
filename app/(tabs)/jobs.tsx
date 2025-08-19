@@ -31,7 +31,7 @@ export default function JobsScreen() {
     }
     
     // QC sees jobs that need QC or have QC issues
-    if (user.role === UserRole.QC) {
+    if (user.role === UserRole.QC_CHECKER) {
       return jobs.filter(job => 
         job.status === JobStatus.QC_PENDING ||
         job.status === JobStatus.QC_FAILED ||
@@ -201,7 +201,7 @@ export default function JobsScreen() {
       ];
     }
     
-    if (user.role === UserRole.QC) {
+    if (user.role === UserRole.QC_CHECKER) {
       return [
         ...baseFilters,
         { label: "QC Pending", value: JobStatus.QC_PENDING },
@@ -260,7 +260,7 @@ export default function JobsScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           data={statusFilters}
-          keyExtractor={(item) => item.value}
+          keyExtractor={(item) => String(item.value)}
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[

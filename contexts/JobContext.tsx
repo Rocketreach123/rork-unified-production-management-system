@@ -14,7 +14,7 @@ interface JobState {
 }
 
 const SEED_VERSION_KEY = "jobs_seed_version";
-const CURRENT_SEED_VERSION = "2";
+const CURRENT_SEED_VERSION = "3";
 
 export const [JobProvider, useJobs] = createContextHook<JobState>(() => {
   const [jobs, setJobs] = useState<Job[]>([]);

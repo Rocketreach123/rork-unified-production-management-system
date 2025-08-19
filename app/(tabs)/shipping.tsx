@@ -37,8 +37,8 @@ export default function ShippingScreen() {
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [trackingNumber, setTrackingNumber] = useState<string>("");
   const [carrier, setCarrier] = useState<string>("ups");
-  const [shippingMethod, setShippingMethod] = useState<string>("UPS Ground");
-  const [billingMethod, setBillingMethod] = useState<string>("ACA Account");
+  const [shippingMethod] = useState<string>("UPS Ground");
+  const [billingMethod] = useState<string>("ACA Account");
   const [shipTo] = useState<ShipToAddress>({
     name: "John Doe",
     address1: "123 Main St",
@@ -71,6 +71,11 @@ export default function ShippingScreen() {
     if (!currentJob) return [] as typeof mockImprintMockups;
     return mockImprintMockups.filter((m) => m.jobId === currentJob.id).slice(0, 3);
   }, [currentJob]);
+
+  const etaText = useMemo(() => {
+    const d = currentJob?.dueDate ? new Date(currentJob.dueDate) : null;
+    return d ? d.toDateString() : "TBD";
+  }, [currentJob?.dueDate]);
 
   const totals = useMemo(() => {
     let shirts = 0;
@@ -209,11 +214,6 @@ export default function ShippingScreen() {
     );
   }
 
-  const etaText = useMemo(() => {
-    const d = currentJob?.dueDate ? new Date(currentJob.dueDate) : null;
-    return d ? d.toDateString() : "TBD";
-  }, [currentJob?.dueDate]);
-
   return (
     <ScrollView style={styles.container} testID="shipping-detail-screen">
       <View style={styles.shippingForm}>
@@ -279,14 +279,14 @@ export default function ShippingScreen() {
           <Text style={styles.sectionTitle}>Add Box</Text>
           <View style={styles.boxControls}>
             <View style={styles.boxTypeRow}>
-              {(["Bag", "Small", "Large", "XL"] as BoxType[]).map((bt) => (
+              {["Bag", "Small", "Large", "XL"].map((bt) => (
                 <TouchableOpacity
                   key={bt}
                   style={[styles.boxTypeButton, boxType === bt && styles.boxTypeButtonActive]}
-                  onPress={() => setBoxType(bt)}
+                  onPress={() => setBoxType(bt as BoxType)}
                   testID={`box-type-${bt}`}
                 >
-                  <Text style={[styles.boxTypeText, boxType === bt && styles.boxTypeTextActive]}>{bt}</Text>
+                  <Text style={[styles.boxTypeText, boxType === (bt as BoxType) && styles.boxTypeTextActive]}>{bt}</Text>
                 </TouchableOpacity>
               ))}
             </View>

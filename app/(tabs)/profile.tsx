@@ -1,12 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { useAuth } from "@/contexts/AuthContext";
+import { useJobs } from "@/contexts/JobContext";
 import { router } from "expo-router";
 import {
   User,
@@ -16,14 +18,27 @@ import {
   Award,
   Settings,
   CheckCircle,
+  RotateCcw,
 } from "lucide-react-native";
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
+  const { resetDemoData, refreshJobs } = useJobs();
+  const [seeding, setSeeding] = useState<boolean>(false);
 
   const handleLogout = () => {
     logout();
     router.replace("/login" as any);
+  };
+
+  const handleReloadDemo = async () => {
+    try {
+      setSeeding(true);
+      await resetDemoData();
+      await refreshJobs();
+    } finally {
+      setSeeding(false);
+    }
   };
 
   const stats = [
@@ -91,6 +106,22 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.menuItem}>
           <Settings size={20} color="#6b7280" />
           <Text style={styles.menuItemText}>Settings</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.reloadButton}
+          onPress={handleReloadDemo}
+          disabled={seeding}
+          testID="reload-demo-button"
+        >
+          {seeding ? (
+            <ActivityIndicator color="#1e40af" />
+          ) : (
+            <>
+              <RotateCcw size={20} color="#1e40af" />
+              <Text style={styles.reloadText}>Reload Demo Jobs</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -226,6 +257,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#374151",
     fontWeight: "500",
+  },
+  reloadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    marginBottom: 12,
+  },
+  reloadText: {
+    fontSize: 15,
+    color: "#1e40af",
+    fontWeight: "600",
   },
   logoutButton: {
     flexDirection: "row",

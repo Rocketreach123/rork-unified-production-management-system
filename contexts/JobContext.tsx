@@ -10,25 +10,43 @@ interface JobState {
   refreshJobs: () => Promise<void>;
   updateJobStatus: (jobId: string, status: JobStatus) => void;
   addJob: (job: Job) => void;
+  resetDemoData: () => Promise<void>;
 }
+
+const SEED_VERSION_KEY = "jobs_seed_version";
+const CURRENT_SEED_VERSION = "2";
 
 export const [JobProvider, useJobs] = createContextHook<JobState>(() => {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   useEffect(() => {
     loadJobs();
   }, []);
 
+  const seedIfNeeded = async () => {
+    const storedVersion = (await AsyncStorage.getItem(SEED_VERSION_KEY)) ?? null;
+    if (storedVersion !== CURRENT_SEED_VERSION) {
+      await AsyncStorage.setItem("jobs", JSON.stringify(mockJobs));
+      await AsyncStorage.setItem(SEED_VERSION_KEY, CURRENT_SEED_VERSION);
+      setJobs(mockJobs);
+      return true;
+    }
+    return false;
+  };
+
   const loadJobs = async () => {
     try {
+      const seeded = await seedIfNeeded();
+      if (seeded) return;
+
       const storedJobs = await AsyncStorage.getItem("jobs");
       if (storedJobs) {
         setJobs(JSON.parse(storedJobs));
       } else {
-        // Initialize with mock data
         setJobs(mockJobs);
         await AsyncStorage.setItem("jobs", JSON.stringify(mockJobs));
+        await AsyncStorage.setItem(SEED_VERSION_KEY, CURRENT_SEED_VERSION);
       }
     } catch (error) {
       console.error("Error loading jobs:", error);
@@ -56,11 +74,18 @@ export const [JobProvider, useJobs] = createContextHook<JobState>(() => {
     AsyncStorage.setItem("jobs", JSON.stringify(updatedJobs));
   };
 
+  const resetDemoData = async () => {
+    await AsyncStorage.removeItem("jobs");
+    await AsyncStorage.removeItem(SEED_VERSION_KEY);
+    await seedIfNeeded();
+  };
+
   return {
     jobs,
     isRefreshing,
     refreshJobs,
     updateJobStatus,
     addJob,
+    resetDemoData,
   };
 });

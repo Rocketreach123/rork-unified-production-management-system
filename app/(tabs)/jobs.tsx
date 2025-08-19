@@ -21,69 +21,62 @@ export default function JobsScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<JobStatus | "all">("all");
 
+  const getDepartmentForRole = (role: UserRole): Department | null => {
+    switch (role) {
+      case UserRole.OPERATOR_SCREEN_PRINT:
+      case UserRole.PACKER_SCREEN_PRINT:
+        return Department.SCREEN_PRINT;
+      case UserRole.OPERATOR_EMBROIDERY:
+      case UserRole.PACKER_EMBROIDERY:
+        return Department.EMBROIDERY;
+      case UserRole.OPERATOR_FULFILLMENT:
+        return Department.FULFILLMENT;
+      default:
+        return null;
+    }
+  };
+
   // Filter jobs based on user role - operators only see jobs relevant to their department
   const relevantJobs = useMemo(() => {
+    console.log("[Jobs] computing relevantJobs for user", user?.role);
     if (!user) return jobs;
-    
-    // Admin sees all jobs
+
     if (user.role === UserRole.ADMIN) {
       return jobs;
     }
-    
-    // QC sees jobs that need QC or have QC issues
+
     if (user.role === UserRole.QC_CHECKER) {
-      return jobs.filter(job => 
-        job.status === JobStatus.QC_PENDING ||
-        job.status === JobStatus.QC_FAILED ||
-        job.status === JobStatus.COMPLETED
+      return jobs.filter(
+        (job) =>
+          job.status === JobStatus.QC_PENDING ||
+          job.status === JobStatus.QC_FAILED ||
+          job.status === JobStatus.COMPLETED
       );
     }
-    
-    // Shipping sees jobs ready to ship
+
     if (user.role === UserRole.SHIPPING) {
-      return jobs.filter(job => 
-        job.status === JobStatus.READY_TO_SHIP ||
-        job.status === JobStatus.QC_PASSED
+      return jobs.filter(
+        (job) =>
+          job.status === JobStatus.READY_TO_SHIP ||
+          job.status === JobStatus.QC_PASSED
       );
     }
-    
-    // Production operators see jobs for their department
-    const departmentMap = {
-      [UserRole.SCREEN_PRINT]: Department.SCREEN_PRINT,
-      [UserRole.EMBROIDERY]: Department.EMBROIDERY,
-      [UserRole.FULFILLMENT]: Department.FULFILLMENT,
-    };
-    
-    const userDepartment = departmentMap[user.role as keyof typeof departmentMap];
+
+    const userDepartment = getDepartmentForRole(user.role);
     if (userDepartment) {
-      return jobs.filter(job => 
-        job.department === userDepartment && (
-          job.status === JobStatus.PREPRODUCTION ||
-          job.status === JobStatus.NEW ||
-          job.status === JobStatus.TEST_PRINT_PENDING ||
-          job.status === JobStatus.TEST_PRINT_APPROVED ||
-          job.status === JobStatus.IN_PRODUCTION ||
-          job.status === JobStatus.PAUSED ||
-          job.status === JobStatus.ON_HOLD
-        )
+      return jobs.filter(
+        (job) =>
+          job.department === userDepartment &&
+          (job.status === JobStatus.PREPRODUCTION ||
+            job.status === JobStatus.NEW ||
+            job.status === JobStatus.TEST_PRINT_PENDING ||
+            job.status === JobStatus.TEST_PRINT_APPROVED ||
+            job.status === JobStatus.IN_PRODUCTION ||
+            job.status === JobStatus.PAUSED ||
+            job.status === JobStatus.ON_HOLD)
       );
     }
-    
-    // Screen room sees all jobs that might need screens
-    if (user.role === UserRole.SCREEN_ROOM) {
-      return jobs.filter(job => 
-        job.status === JobStatus.NEW ||
-        job.status === JobStatus.PREPRODUCTION
-      );
-    }
-    
-    // Preproduction sees new jobs
-    if (user.role === UserRole.PREPRODUCTION) {
-      return jobs.filter(job => 
-        job.status === JobStatus.NEW
-      );
-    }
-    
+
     return jobs;
   }, [jobs, user]);
 
@@ -91,8 +84,7 @@ export default function JobsScreen() {
     const matchesSearch =
       job.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.customerName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus =
-      selectedStatus === "all" || job.status === selectedStatus;
+    const matchesStatus = selectedStatus === "all" || job.status === selectedStatus;
     return matchesSearch && matchesStatus;
   });
 
@@ -146,9 +138,7 @@ export default function JobsScreen() {
             { backgroundColor: getStatusColor(item.status) },
           ]}
         >
-          <Text style={styles.statusText}>
-            {item.status.replace(/_/g, " ")}
-          </Text>
+          <Text style={styles.statusText}>{item.status.replace(/_/g, " ")}</Text>
         </View>
       </View>
 
@@ -181,10 +171,12 @@ export default function JobsScreen() {
 
   // Dynamic status filters based on user role
   const statusFilters = useMemo(() => {
-    const baseFilters = [{ label: "All", value: "all" }];
-    
+    const baseFilters: Array<{ label: string; value: JobStatus | "all" }> = [
+      { label: "All", value: "all" },
+    ];
+
     if (!user) return baseFilters;
-    
+
     if (user.role === UserRole.ADMIN) {
       return [
         ...baseFilters,
@@ -200,7 +192,7 @@ export default function JobsScreen() {
         { label: "Shipped", value: JobStatus.SHIPPED },
       ];
     }
-    
+
     if (user.role === UserRole.QC_CHECKER) {
       return [
         ...baseFilters,
@@ -209,7 +201,7 @@ export default function JobsScreen() {
         { label: "Complete", value: JobStatus.COMPLETED },
       ];
     }
-    
+
     if (user.role === UserRole.SHIPPING) {
       return [
         ...baseFilters,
@@ -217,9 +209,15 @@ export default function JobsScreen() {
         { label: "QC Passed", value: JobStatus.QC_PASSED },
       ];
     }
-    
-    // Production operators
-    const productionRoles = [UserRole.SCREEN_PRINT, UserRole.EMBROIDERY, UserRole.FULFILLMENT];
+
+    const productionRoles: UserRole[] = [
+      UserRole.OPERATOR_SCREEN_PRINT,
+      UserRole.PACKER_SCREEN_PRINT,
+      UserRole.OPERATOR_EMBROIDERY,
+      UserRole.PACKER_EMBROIDERY,
+      UserRole.OPERATOR_FULFILLMENT,
+    ];
+
     if (productionRoles.includes(user.role)) {
       return [
         ...baseFilters,
@@ -231,7 +229,7 @@ export default function JobsScreen() {
         { label: "On Hold", value: JobStatus.ON_HOLD },
       ];
     }
-    
+
     return [
       ...baseFilters,
       { label: "New", value: JobStatus.NEW },
@@ -295,15 +293,15 @@ export default function JobsScreen() {
           <View style={styles.emptyState}>
             <Package size={48} color="#9ca3af" />
             <Text style={styles.emptyText}>
-              {user?.role === UserRole.ADMIN 
-                ? "No jobs found" 
+              {user?.role === UserRole.ADMIN
+                ? "No jobs found"
                 : "No jobs available for your department"}
             </Text>
             {user?.role !== UserRole.ADMIN && (
               <View style={styles.operatorHint}>
                 <AlertCircle size={16} color="#6b7280" />
                 <Text style={styles.hintText}>
-                  You only see jobs relevant to your role: {user?.role.replace(/_/g, ' ')}
+                  You only see jobs relevant to your role: {user?.role.replace(/_/g, " ")}
                 </Text>
               </View>
             )}

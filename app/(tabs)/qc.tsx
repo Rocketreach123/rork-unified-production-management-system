@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  Image,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import {
@@ -15,11 +17,17 @@ import {
   AlertCircle,
   Camera,
   Scan,
+  Grid,
+  Palette,
+  PackageCheck,
 } from "lucide-react-native";
 import { useJobs } from "@/contexts/JobContext";
 import { JobStatus } from "@/types/job";
 import { trpc } from "@/lib/trpc";
 import type { QCStatus, QCService, QCPhase } from "@/types/qc";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { ImprintDisplay } from "@/components/ImprintDisplay";
+import { mockLineItems } from "@/mocks/jobs";
 
 const serviceOptions: QCService[] = [
   "Screen Printing",
@@ -50,6 +58,11 @@ export default function QCScreen() {
   const [failedPhotoUrl, setFailedPhotoUrl] = useState<string>("");
   const [correctionsPhotoUrl, setCorrectionsPhotoUrl] = useState<string>("");
   const [labelsPhotoUrl, setLabelsPhotoUrl] = useState<string>("");
+  const [cameraVisible, setCameraVisible] = useState<boolean>(false);
+  const [cameraPhase, setCameraPhase] = useState<QCPhase | null>(null);
+  const cameraRef = useRef<any>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [facing, setFacing] = useState<"back" | "front">("back");
   const [discrepancy, setDiscrepancy] = useState<string>("");
   const [fixesNotes, setFixesNotes] = useState<string>("");
 
@@ -59,18 +72,54 @@ export default function QCScreen() {
 
   const currentJob = selectedJob ? jobs.find((j) => j.id === selectedJob) ?? null : null;
 
-  const checklist = [
-    { id: "alignment", label: "Alignment correct", checked: false },
-    { id: "placement", label: "Placement accurate", checked: false },
-    { id: "colors", label: "Colors match proof", checked: false },
-    { id: "quality", label: "Print quality acceptable", checked: false },
-    { id: "packaging", label: "Packaging intact", checked: false },
+  interface ChecklistItem { id: string; label: string; icon: React.ReactElement; checked: boolean }
+  const initialChecklist: ChecklistItem[] = [
+    { id: "alignment", label: "Alignment correct", icon: <Grid size={18} color="#111827" />, checked: false },
+    { id: "placement", label: "Placement accurate", icon: <CheckCircle size={18} color="#111827" />, checked: false },
+    { id: "colors", label: "Colors match proof", icon: <Palette size={18} color="#111827" />, checked: false },
+    { id: "quality", label: "Print quality acceptable", icon: <CheckCircle size={18} color="#111827" />, checked: false },
+    { id: "packaging", label: "Packaging intact", icon: <PackageCheck size={18} color="#111827" />, checked: false },
   ];
 
-  const [checklistState, setChecklistState] = useState<typeof checklist>(checklist);
+  const [checklistState, setChecklistState] = useState<ChecklistItem[]>([...initialChecklist]);
 
   const toggleChecklistItem = (id: string) => {
     setChecklistState((prev) => prev.map((item) => item.id === id ? { ...item, checked: !item.checked } : item));
+  };
+
+  const startCameraForPhase = async (phase: QCPhase) => {
+    console.log("Request camera for phase", phase);
+    if (!permission?.granted) {
+      const res = await requestPermission();
+      if (!res.granted) {
+        Alert.alert("Camera Access", "Camera permission is required to capture photos.");
+        return;
+      }
+    }
+    setCameraPhase(phase);
+    setCameraVisible(true);
+  };
+
+  const handleTakePicture = async () => {
+    try {
+      const cam = cameraRef.current;
+      if (!cam) {
+        Alert.alert("Camera", "Camera not ready. Please try again.");
+        return;
+      }
+      const photo = await cam.takePictureAsync({ base64: true, skipProcessing: Platform.OS === "android" });
+      const dataUrl = `data:image/jpeg;base64,${photo?.base64 ?? ""}`;
+      if (!cameraPhase) return;
+      if (cameraPhase === "Good Piece") setGoodPhotoUrl(dataUrl);
+      if (cameraPhase === "Failed Pieces") setFailedPhotoUrl(dataUrl);
+      if (cameraPhase === "Corrections") setCorrectionsPhotoUrl(dataUrl);
+      if (cameraPhase === "Box Labels") setLabelsPhotoUrl(dataUrl);
+      setCameraVisible(false);
+      setCameraPhase(null);
+    } catch (e) {
+      console.log("takePicture error", e);
+      Alert.alert("Camera Error", "Failed to take photo. Please try again.");
+    }
   };
 
   const toggleService = (svc: QCService) => {
@@ -135,7 +184,7 @@ export default function QCScreen() {
 
       setSelectedJob(null);
       setNotes("");
-      setChecklistState(checklist);
+      setChecklistState([...initialChecklist]);
       setServices([]);
       setMissingCount("0");
       setFailReasons([]);
@@ -207,8 +256,19 @@ export default function QCScreen() {
     );
   }
 
+  const checklistScore = checklistState.filter((c) => c.checked).length;
+  const hasIssues = Number(missingCount || "0") > 0 || failReasons.length > 0 || (notes.trim().length > 0 && checklistScore < checklistState.length);
+  const bannerColor = checklistScore === checklistState.length && !hasIssues ? "#10b981" : hasIssues ? "#ef4444" : "#f59e0b";
+  const bannerLabel = checklistScore === checklistState.length && !hasIssues ? "All validations complete – Ready to Pass" : hasIssues ? "Issues found – Review required" : "Some items unchecked – Recheck Needed";
+
   return (
     <ScrollView style={styles.container}>
+      <View style={[styles.banner, { backgroundColor: bannerColor }]} testID="qc-status-banner">
+        <Text style={styles.bannerText}>{bannerLabel}</Text>
+      </View>
+
+      {currentJob?.id ? <ImprintDisplay jobId={currentJob.id} /> : null}
+
       <View style={styles.qcForm}>
         <View style={styles.jobInfoCard}>
           <Text style={styles.jobNumber}>#{currentJob?.orderNumber}</Text>
@@ -219,28 +279,26 @@ export default function QCScreen() {
         </View>
 
         <View style={styles.checklistSection}>
-          <Text style={styles.sectionTitle}>Services Checked</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {serviceOptions.map((svc) => (
-              <TouchableOpacity
-                key={svc}
-                onPress={() => toggleService(svc)}
-                style={[styles.pill, services.includes(svc) ? styles.pillActive : undefined]}
-                testID={`svc-${svc}`}
-              >
-                <Text style={[styles.pillText, services.includes(svc) ? styles.pillTextActive : undefined]}>{svc}</Text>
-              </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Garment Size Run</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {mockLineItems.filter((li) => li.jobId === (currentJob?.id ?? "")).map((li) => (
+              <View key={li.id} style={styles.sizeChip}>
+                <Text style={styles.sizeChipSku}>{li.sku}</Text>
+                <Text style={styles.sizeChipText}>{li.color} • {li.size}</Text>
+                <Text style={styles.sizeChipQty}>{li.quantity} pcs</Text>
+              </View>
             ))}
-          </View>
+          </ScrollView>
         </View>
 
         <View style={styles.checklistSection}>
           <Text style={styles.sectionTitle}>QC Checklist</Text>
           {checklistState.map((item) => (
-            <TouchableOpacity key={item.id} style={styles.checklistItem} onPress={() => toggleChecklistItem(item.id)}>
+            <TouchableOpacity key={item.id} style={styles.checklistItem} onPress={() => toggleChecklistItem(item.id)} testID={`qc-check-${item.id}`}>
               <View style={styles.checkbox}>
                 {item.checked ? <CheckCircle size={20} color="#10b981" /> : <View style={styles.checkboxEmpty} />}
               </View>
+              <View style={styles.checklistIcon}>{item.icon}</View>
               <Text style={styles.checklistLabel}>{item.label}</Text>
             </TouchableOpacity>
           ))}
@@ -250,7 +308,7 @@ export default function QCScreen() {
           <Text style={styles.sectionTitle}>Design Issues / Notes</Text>
           <TextInput
             style={styles.notesInput}
-            placeholder="Add any observations or issues..."
+            placeholder="Only add notes if necessary"
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -280,17 +338,35 @@ export default function QCScreen() {
         </View>
 
         <View style={styles.notesSection}>
-          <Text style={styles.sectionTitle}>Packaging & Labels</Text>
-          <TextInput style={styles.input} placeholder="Final discrepancy summary (SKU/Color/Size/QTY)" value={discrepancy} onChangeText={setDiscrepancy} testID="discrepancy" />
-          <TextInput style={styles.input} placeholder="Fixes made (optional)" value={fixesNotes} onChangeText={setFixesNotes} testID="fixes-notes" />
-        </View>
-
-        <View style={styles.notesSection}>
-          <Text style={styles.sectionTitle}>Attach Photo Links (M365/SharePoint)</Text>
-          <TextInput style={styles.input} placeholder="Good piece photo URL" value={goodPhotoUrl} onChangeText={setGoodPhotoUrl} testID="photo-good" />
-          <TextInput style={styles.input} placeholder="Failed pieces photo URL" value={failedPhotoUrl} onChangeText={setFailedPhotoUrl} testID="photo-failed" />
-          <TextInput style={styles.input} placeholder="Corrections photo URL" value={correctionsPhotoUrl} onChangeText={setCorrectionsPhotoUrl} testID="photo-corrections" />
-          <TextInput style={styles.input} placeholder="Labels & boxes photo URL" value={labelsPhotoUrl} onChangeText={setLabelsPhotoUrl} testID="photo-labels" />
+          <Text style={styles.sectionTitle}>Capture Photos</Text>
+          <View style={styles.photoRow}>
+            <TouchableOpacity style={styles.photoButton} onPress={() => startCameraForPhase("Good Piece")} testID="photo-btn-good">
+              <Camera size={18} color="#1e40af" />
+              <Text style={styles.photoButtonText}>Good Piece</Text>
+            </TouchableOpacity>
+            {goodPhotoUrl ? <Image source={{ uri: goodPhotoUrl }} style={styles.preview} /> : null}
+          </View>
+          <View style={styles.photoRow}>
+            <TouchableOpacity style={styles.photoButton} onPress={() => startCameraForPhase("Failed Pieces")} testID="photo-btn-failed">
+              <Camera size={18} color="#1e40af" />
+              <Text style={styles.photoButtonText}>Failed Pieces</Text>
+            </TouchableOpacity>
+            {failedPhotoUrl ? <Image source={{ uri: failedPhotoUrl }} style={styles.preview} /> : null}
+          </View>
+          <View style={styles.photoRow}>
+            <TouchableOpacity style={styles.photoButton} onPress={() => startCameraForPhase("Corrections")} testID="photo-btn-corrections">
+              <Camera size={18} color="#1e40af" />
+              <Text style={styles.photoButtonText}>Corrections</Text>
+            </TouchableOpacity>
+            {correctionsPhotoUrl ? <Image source={{ uri: correctionsPhotoUrl }} style={styles.preview} /> : null}
+          </View>
+          <View style={styles.photoRow}>
+            <TouchableOpacity style={styles.photoButton} onPress={() => startCameraForPhase("Box Labels")} testID="photo-btn-labels">
+              <Camera size={18} color="#1e40af" />
+              <Text style={styles.photoButtonText}>Labels & Boxes</Text>
+            </TouchableOpacity>
+            {labelsPhotoUrl ? <Image source={{ uri: labelsPhotoUrl }} style={styles.preview} /> : null}
+          </View>
         </View>
 
         <View style={styles.decisionButtons}>
@@ -314,6 +390,28 @@ export default function QCScreen() {
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
       </View>
+
+      {cameraVisible ? (
+        <View style={styles.cameraOverlay} testID="camera-overlay">
+          <View style={styles.cameraHeader}>
+            <Text style={styles.cameraTitle}>Capture – {cameraPhase}</Text>
+          </View>
+          <View style={styles.cameraWrap}>
+            <CameraView ref={cameraRef} style={styles.camera} facing={facing} />
+          </View>
+          <View style={styles.cameraControls}>
+            <TouchableOpacity style={styles.controlBtn} onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))} testID="camera-flip">
+              <Text style={styles.controlBtnText}>Flip</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.controlBtn, styles.controlPrimary]} onPress={handleTakePicture} testID="camera-shutter">
+              <Text style={[styles.controlBtnText, styles.controlPrimaryText]}>Capture</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.controlBtn} onPress={() => { setCameraVisible(false); setCameraPhase(null); }} testID="camera-cancel">
+              <Text style={styles.controlBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -342,12 +440,15 @@ const styles = StyleSheet.create({
   checklistItem: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
   checkbox: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   checkboxEmpty: { width: 20, height: 20, borderWidth: 2, borderColor: "#d1d5db", borderRadius: 4 },
+  checklistIcon: { width: 28, alignItems: "center" },
   checklistLabel: { fontSize: 15, color: "#374151" },
   notesSection: { backgroundColor: "white", padding: 16, borderRadius: 12, marginBottom: 20 },
   notesInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, fontSize: 15, minHeight: 100 },
   input: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, fontSize: 15, marginTop: 8 },
-  photoButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "white", padding: 16, borderRadius: 12, borderWidth: 1, borderColor: "#1e40af", gap: 8, marginBottom: 20 },
-  photoButtonText: { color: "#1e40af", fontSize: 15, fontWeight: "600" },
+  photoRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
+  photoButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "white", padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#1e40af", gap: 8 },
+  photoButtonText: { color: "#1e40af", fontSize: 14, fontWeight: "600" },
+  preview: { width: 56, height: 56, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" },
   decisionButtons: { flexDirection: "row", gap: 12, marginBottom: 16 },
   decisionButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 16, borderRadius: 12, gap: 8 },
   passButton: { backgroundColor: "#10b981" },
@@ -360,4 +461,20 @@ const styles = StyleSheet.create({
   pillActive: { backgroundColor: "#111827", borderColor: "#111827" },
   pillText: { color: "#111827", fontSize: 13, fontWeight: "600" },
   pillTextActive: { color: "#ffffff" },
+  banner: { paddingVertical: 10, paddingHorizontal: 16 },
+  bannerText: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
+  sizeChip: { backgroundColor: "#f9fafb", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12, marginRight: 8, minWidth: 120 },
+  sizeChipSku: { color: "#111827", fontSize: 12, fontWeight: "700" },
+  sizeChipText: { color: "#6b7280", fontSize: 12 },
+  sizeChipQty: { color: "#1e40af", fontSize: 12, fontWeight: "700", marginTop: 2 },
+  cameraOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "#000000", zIndex: 50 },
+  cameraHeader: { paddingTop: 40, paddingHorizontal: 16, paddingBottom: 8 },
+  cameraTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  cameraWrap: { flex: 1, overflow: "hidden" },
+  camera: { flex: 1 },
+  cameraControls: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16 },
+  controlBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.2)" },
+  controlBtnText: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
+  controlPrimary: { backgroundColor: "#22c55e" },
+  controlPrimaryText: { color: "#ffffff" },
 });

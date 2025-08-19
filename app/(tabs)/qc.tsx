@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
   Image,
   Platform,
+  Modal,
 } from "react-native";
 import { router } from "expo-router";
 import {
@@ -28,6 +29,17 @@ import type { QCStatus, QCService, QCPhase } from "@/types/qc";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { ImprintDisplay } from "@/components/ImprintDisplay";
 import { mockLineItems } from "@/mocks/jobs";
+
+interface SpoilageEntry {
+  id: string;
+  sku: string;
+  size: string;
+  color: string;
+  quantity: number;
+  reason: string;
+}
+
+interface ChecklistItem { id: string; label: string; icon: React.ReactElement; checked: boolean }
 
 const serviceOptions: QCService[] = [
   "Screen Printing",
@@ -51,7 +63,7 @@ export default function QCScreen() {
   const [qcMode, setQcMode] = useState<"live" | "recheck">("live");
   const [notes, setNotes] = useState<string>("");
   const [services, setServices] = useState<QCService[]>([]);
-  const [missingCount, setMissingCount] = useState<string>("0");
+  const [missingCount, setMissingCount] = useState<string>("0"); // deprecated manual input, will be derived from spoilageEntries
   const [failReasons, setFailReasons] = useState<string[]>([]);
   const [status, setStatus] = useState<QCStatus>("Recheck Needed");
   const [goodPhotoUrl, setGoodPhotoUrl] = useState<string>("");
@@ -66,13 +78,19 @@ export default function QCScreen() {
   const [discrepancy, setDiscrepancy] = useState<string>("");
   const [fixesNotes, setFixesNotes] = useState<string>("");
 
+  const [spoilageEntries, setSpoilageEntries] = useState<SpoilageEntry[]>([]);
+  const [spoilageEditorOpen, setSpoilageEditorOpen] = useState<boolean>(false);
+  const [draftSpoilage, setDraftSpoilage] = useState<{ sku: string; size: string; color: string; quantity: string; reason: string }>({ sku: "", size: "", color: "", quantity: "1", reason: "Failed QC" });
+
+  const [guideVisible, setGuideVisible] = useState<boolean>(false);
+  const [guideFor, setGuideFor] = useState<string | null>(null);
+
   const qcPendingJobs = useMemo(() => jobs.filter(
     (job) => job.status === JobStatus.QC_PENDING || job.status === JobStatus.QC_FAILED
   ), [jobs]);
 
   const currentJob = selectedJob ? jobs.find((j) => j.id === selectedJob) ?? null : null;
 
-  interface ChecklistItem { id: string; label: string; icon: React.ReactElement; checked: boolean }
   const initialChecklist: ChecklistItem[] = [
     { id: "alignment", label: "Alignment correct", icon: <Grid size={18} color="#111827" />, checked: false },
     { id: "placement", label: "Placement accurate", icon: <CheckCircle size={18} color="#111827" />, checked: false },
@@ -83,8 +101,26 @@ export default function QCScreen() {
 
   const [checklistState, setChecklistState] = useState<ChecklistItem[]>([...initialChecklist]);
 
+  const openGuideFor = useCallback((id: string) => {
+    console.log("Open guide for", id);
+    setGuideFor(id);
+    setGuideVisible(true);
+  }, []);
+
+  const applyGuideAndToggle = useCallback((id: string) => {
+    console.log("Apply guide and mark verified", id);
+    setChecklistState((prev) => prev.map((item) => item.id === id ? { ...item, checked: true } : item));
+    setGuideVisible(false);
+    setGuideFor(null);
+  }, []);
+
   const toggleChecklistItem = (id: string) => {
-    setChecklistState((prev) => prev.map((item) => item.id === id ? { ...item, checked: !item.checked } : item));
+    const found = checklistState.find((i) => i.id === id);
+    if (found && !found.checked) {
+      openGuideFor(id);
+      return;
+    }
+    setChecklistState((prev) => prev.map((item) => item.id === id ? { ...item, checked: false } : item));
   };
 
   const startCameraForPhase = async (phase: QCPhase) => {
@@ -144,10 +180,13 @@ export default function QCScreen() {
         inspector_id: Number(currentJob.qcInspectorId ?? 0),
         services_checked: services.length ? services : ["Full Order"],
         design_check: checklistState.filter((c) => !c.checked).map((c) => c.label).join(", "),
-        missing_count: Number(missingCount || "0"),
+        missing_count: spoilageEntries.reduce((sum, e) => sum + (e.quantity || 0), 0),
         fail_reasons: failReasons,
         status: decidedStatus,
-        discrepancy_summary: discrepancy,
+        discrepancy_summary: [
+          discrepancy,
+          spoilageEntries.length ? "\nSpoilage Log:\n" + spoilageEntries.map((e) => `${e.quantity} ${e.size} ${e.color} – ${e.reason} (${e.sku})`).join("\n") : "",
+        ].filter(Boolean).join("\n").trim(),
         fixes_notes: fixesNotes,
         comments: notes,
       });
@@ -159,12 +198,16 @@ export default function QCScreen() {
       if (labelsPhotoUrl) uploads.push({ url: labelsPhotoUrl, phase: "Box Labels" });
 
       for (const u of uploads) {
-        await uploadFileMutation.mutateAsync({
-          qc_form_id: form.id,
-          phase: u.phase,
-          file_path: u.url,
-          uploaded_by: Number(currentJob.qcInspectorId ?? 0),
-        });
+        try {
+          await uploadFileMutation.mutateAsync({
+            qc_form_id: form.id,
+            phase: u.phase,
+            file_path: u.url,
+            uploaded_by: Number(currentJob.qcInspectorId ?? 0),
+          });
+        } catch (err) {
+          console.log("Upload file error", err);
+        }
       }
 
       let newStatus: JobStatus = JobStatus.QC_PENDING;
@@ -195,6 +238,7 @@ export default function QCScreen() {
       setLabelsPhotoUrl("");
       setDiscrepancy("");
       setFixesNotes("");
+      setSpoilageEntries([]);
     } catch (e) {
       Alert.alert("Error", "Failed to record QC. Please try again.");
       console.log("QC submit error", e);
@@ -257,7 +301,7 @@ export default function QCScreen() {
   }
 
   const checklistScore = checklistState.filter((c) => c.checked).length;
-  const hasIssues = Number(missingCount || "0") > 0 || failReasons.length > 0 || (notes.trim().length > 0 && checklistScore < checklistState.length);
+  const hasIssues = spoilageEntries.reduce((s, e) => s + e.quantity, 0) > 0 || failReasons.length > 0 || (notes.trim().length > 0 && checklistScore < checklistState.length);
   const bannerColor = checklistScore === checklistState.length && !hasIssues ? "#10b981" : hasIssues ? "#ef4444" : "#f59e0b";
   const bannerLabel = checklistScore === checklistState.length && !hasIssues ? "All validations complete – Ready to Pass" : hasIssues ? "Issues found – Review required" : "Some items unchecked – Recheck Needed";
 
@@ -320,21 +364,41 @@ export default function QCScreen() {
 
         <View style={styles.notesSection}>
           <Text style={styles.sectionTitle}>Failed / Missing Pieces</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Total missing/failed count"
-            keyboardType="number-pad"
-            value={missingCount}
-            onChangeText={setMissingCount}
-            testID="missing-count"
-          />
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-            {failReasonOptions.map((r) => (
-              <TouchableOpacity key={r} onPress={() => toggleFailReason(r)} style={[styles.pill, failReasons.includes(r) ? styles.pillActive : undefined]} testID={`fail-${r}`}>
-                <Text style={[styles.pillText, failReasons.includes(r) ? styles.pillTextActive : undefined]}>{r}</Text>
-              </TouchableOpacity>
-            ))}
+
+          <View style={styles.spoilageHeaderRow}>
+            <Text style={styles.spoilageTotal}>Total: {spoilageEntries.reduce((s, e) => s + (e.quantity || 0), 0)} pcs</Text>
+            <TouchableOpacity style={styles.addSpoilageBtn} onPress={() => {
+              const first = mockLineItems.find(li => li.jobId === (currentJob?.id ?? ""));
+              setDraftSpoilage({
+                sku: first?.sku ?? "",
+                size: first?.size ?? "",
+                color: first?.color ?? "",
+                quantity: "1",
+                reason: "Failed QC",
+              });
+              setSpoilageEditorOpen(true);
+            }} testID="add-spoilage">
+              <Text style={styles.addSpoilageText}>Add Entry</Text>
+            </TouchableOpacity>
           </View>
+
+          {spoilageEntries.length > 0 ? (
+            <View style={styles.spoilageList}>
+              {spoilageEntries.map((e) => (
+                <View key={e.id} style={styles.spoilageItem}>
+                  <Text style={styles.spoilageText}>{e.quantity} {e.size} {e.color} – {e.reason}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={styles.spoilageSku}>{e.sku}</Text>
+                    <TouchableOpacity onPress={() => setSpoilageEntries(prev => prev.filter(x => x.id !== e.id))} testID={`remove-spoilage-${e.id}`}>
+                      <Text style={styles.removeText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.spoilageEmpty}>No spoilage recorded yet.</Text>
+          )}
         </View>
 
         <View style={styles.notesSection}>
@@ -390,6 +454,136 @@ export default function QCScreen() {
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
       </View>
+
+      {guideVisible && (
+        <Modal transparent animationType="fade" visible={guideVisible} onRequestClose={() => setGuideVisible(false)}>
+          <View style={styles.guideOverlay}>
+            <View style={styles.guideCard}>
+              <Text style={styles.guideTitle}>{guideFor === 'alignment' ? 'Alignment Check' : guideFor === 'placement' ? 'Placement Check' : guideFor === 'colors' ? 'Color Match' : guideFor === 'quality' ? 'Print Quality' : 'Packaging'}</Text>
+              <Image source={{ uri: guideFor === 'alignment' ? 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?q=80&w=1200&auto=format&fit=crop' : guideFor === 'placement' ? 'https://images.unsplash.com/photo-1512436991641-6745cdb1723f?q=80&w=1200&auto=format&fit=crop' : guideFor === 'colors' ? 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=1200&auto=format&fit=crop' : guideFor === 'quality' ? 'https://images.unsplash.com/photo-1520975916090-3105956dac38?q=80&w=1200&auto=format&fit=crop' : 'https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=1200&auto=format&fit=crop' }} style={styles.guideImage} resizeMode="cover" />
+              <View style={styles.guideSteps}>
+                {guideFor === 'alignment' && (
+                  <>
+                    <Text style={styles.guideStep}>• Lay garment flat; smooth wrinkles</Text>
+                    <Text style={styles.guideStep}>• Use centerline grid; verify left/right balance</Text>
+                    <Text style={styles.guideStep}>• Confirm distance from collar according to mockup</Text>
+                  </>
+                )}
+                {guideFor === 'placement' && (
+                  <>
+                    <Text style={styles.guideStep}>• Match imprint zone to mockup position</Text>
+                    <Text style={styles.guideStep}>• Sleeve/pocket prints: verify angle and offset</Text>
+                    <Text style={styles.guideStep}>• Confirm scale within tolerance</Text>
+                  </>
+                )}
+                {guideFor === 'colors' && (
+                  <>
+                    <Text style={styles.guideStep}>• Compare ink to approved swatch</Text>
+                    <Text style={styles.guideStep}>• Under different light: shop vs daylight</Text>
+                    <Text style={styles.guideStep}>• Note Pantone if mismatch</Text>
+                  </>
+                )}
+                {guideFor === 'quality' && (
+                  <>
+                    <Text style={styles.guideStep}>• Inspect for pinholes, ghosting, cracking</Text>
+                    <Text style={styles.guideStep}>• Check coverage on dark garments</Text>
+                    <Text style={styles.guideStep}>• Tug test for cure integrity</Text>
+                  </>
+                )}
+                {guideFor === 'packaging' && (
+                  <>
+                    <Text style={styles.guideStep}>• Verify fold method per job</Text>
+                    <Text style={styles.guideStep}>• Bag/tag present as required</Text>
+                    <Text style={styles.guideStep}>• Box labels: SKU, size, qty match</Text>
+                  </>
+                )}
+              </View>
+              <View style={styles.guideActions}>
+                <TouchableOpacity style={[styles.controlBtn]} onPress={() => { setGuideVisible(false); setGuideFor(null); }} testID="guide-cancel">
+                  <Text style={styles.controlBtnText}>Close</Text>
+                </TouchableOpacity>
+                {guideFor ? (
+                  <TouchableOpacity style={[styles.controlBtn, styles.controlPrimary]} onPress={() => applyGuideAndToggle(guideFor!)} testID="guide-confirm">
+                    <Text style={[styles.controlBtnText, styles.controlPrimaryText]}>Mark as Verified</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {spoilageEditorOpen && (
+        <Modal transparent animationType="slide" visible={spoilageEditorOpen} onRequestClose={() => setSpoilageEditorOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Add Spoilage Entry</Text>
+              <Text style={styles.modalLabel}>SKU</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                {Array.from(new Set(mockLineItems.filter(li => li.jobId === (currentJob?.id ?? '')).map(li => li.sku))).map((sku) => (
+                  <TouchableOpacity key={sku} style={[styles.pill, draftSpoilage.sku === sku ? styles.pillActive : undefined]} onPress={() => setDraftSpoilage((d) => ({ ...d, sku }))}>
+                    <Text style={[styles.pillText, draftSpoilage.sku === sku ? styles.pillTextActive : undefined]}>{sku}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.modalLabel}>Size</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                {Array.from(new Set(mockLineItems.filter(li => li.jobId === (currentJob?.id ?? '') && (draftSpoilage.sku ? li.sku === draftSpoilage.sku : true)).map(li => li.size))).map((size) => (
+                  <TouchableOpacity key={size} style={[styles.pill, draftSpoilage.size === size ? styles.pillActive : undefined]} onPress={() => setDraftSpoilage((d) => ({ ...d, size }))}>
+                    <Text style={[styles.pillText, draftSpoilage.size === size ? styles.pillTextActive : undefined]}>{size}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.modalLabel}>Color</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                {Array.from(new Set(mockLineItems.filter(li => li.jobId === (currentJob?.id ?? '') && (draftSpoilage.sku ? li.sku === draftSpoilage.sku : true)).map(li => li.color))).map((color) => (
+                  <TouchableOpacity key={color} style={[styles.pill, draftSpoilage.color === color ? styles.pillActive : undefined]} onPress={() => setDraftSpoilage((d) => ({ ...d, color }))}>
+                    <Text style={[styles.pillText, draftSpoilage.color === color ? styles.pillTextActive : undefined]}>{color}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.modalLabel}>Reason</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                {failReasonOptions.map((r) => (
+                  <TouchableOpacity key={r} style={[styles.pill, draftSpoilage.reason === r ? styles.pillActive : undefined]} onPress={() => setDraftSpoilage((d) => ({ ...d, reason: r }))}>
+                    <Text style={[styles.pillText, draftSpoilage.reason === r ? styles.pillTextActive : undefined]}>{r}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.modalLabel}>Quantity</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="number-pad"
+                value={draftSpoilage.quantity}
+                onChangeText={(t) => setDraftSpoilage((d) => ({ ...d, quantity: t }))}
+              />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, gap: 12 }}>
+                <TouchableOpacity style={[styles.controlBtn]} onPress={() => setSpoilageEditorOpen(false)}>
+                  <Text style={styles.controlBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.controlBtn, styles.controlPrimary]} onPress={() => {
+                  const qty = Math.max(1, Number(draftSpoilage.quantity || '0'));
+                  if (!draftSpoilage.sku || !draftSpoilage.size || !draftSpoilage.color) {
+                    Alert.alert('Incomplete', 'Select SKU, size and color.');
+                    return;
+                  }
+                  const id = Math.random().toString(36).slice(2);
+                  const entry: SpoilageEntry = { id, sku: draftSpoilage.sku, size: draftSpoilage.size, color: draftSpoilage.color, quantity: qty, reason: draftSpoilage.reason };
+                  setSpoilageEntries((prev) => [...prev, entry]);
+                  setSpoilageEditorOpen(false);
+                }}>
+                  <Text style={[styles.controlBtnText, styles.controlPrimaryText]}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {cameraVisible ? (
         <View style={styles.cameraOverlay} testID="camera-overlay">
@@ -457,7 +651,7 @@ const styles = StyleSheet.create({
   decisionButtonText: { color: "white", fontSize: 15, fontWeight: "600" },
   cancelButton: { alignItems: "center", padding: 16 },
   cancelButtonText: { color: "#6b7280", fontSize: 15, fontWeight: "500" },
-  pill: { borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f9fafb", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  pill: { borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f9fafb", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, marginRight: 8 },
   pillActive: { backgroundColor: "#111827", borderColor: "#111827" },
   pillText: { color: "#111827", fontSize: 13, fontWeight: "600" },
   pillTextActive: { color: "#ffffff" },
@@ -477,4 +671,28 @@ const styles = StyleSheet.create({
   controlBtnText: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
   controlPrimary: { backgroundColor: "#22c55e" },
   controlPrimaryText: { color: "#ffffff" },
+
+  spoilageHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  spoilageTotal: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  addSpoilageBtn: { backgroundColor: '#111827', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  addSpoilageText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  spoilageList: { marginTop: 12, gap: 8 },
+  spoilageItem: { padding: 12, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, backgroundColor: '#fafafa', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  spoilageText: { color: '#374151', fontSize: 14, fontWeight: '600' },
+  spoilageSku: { color: '#6b7280', fontSize: 12 },
+  removeText: { color: '#ef4444', fontSize: 13, fontWeight: '700' },
+  spoilageEmpty: { color: '#6b7280', fontSize: 13, marginTop: 8 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: 'white', padding: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  modalLabel: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
+
+  guideOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  guideCard: { width: '100%', maxWidth: 520, backgroundColor: 'white', borderRadius: 16, overflow: 'hidden' },
+  guideTitle: { fontSize: 18, fontWeight: '700', color: '#111827', padding: 16 },
+  guideImage: { width: '100%', height: 160 },
+  guideSteps: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 6 },
+  guideStep: { color: '#374151', fontSize: 14 },
+  guideActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
 });

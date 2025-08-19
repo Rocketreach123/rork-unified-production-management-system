@@ -1,12 +1,12 @@
 export enum UserRole {
   ADMIN = "admin",
-  SCREEN_ROOM = "screen_room",
-  SCREEN_PRINT = "screen_print",
-  EMBROIDERY = "embroidery",
-  FULFILLMENT = "fulfillment",
-  QC = "qc",
+  OPERATOR_SCREEN_PRINT = "operator_screen_print",
+  PACKER_SCREEN_PRINT = "packer_screen_print",
+  OPERATOR_EMBROIDERY = "operator_embroidery",
+  PACKER_EMBROIDERY = "packer_embroidery",
+  OPERATOR_FULFILLMENT = "operator_fulfillment",
+  QC_CHECKER = "qc_checker",
   SHIPPING = "shipping",
-  PREPRODUCTION = "preproduction",
 }
 
 export interface User {
@@ -15,3 +15,14 @@ export interface User {
   name: string;
   role: UserRole;
 }
+
+export const AllRoles: { label: string; value: UserRole }[] = [
+  { label: "ADMIN", value: UserRole.ADMIN },
+  { label: "Operator – Screen Print", value: UserRole.OPERATOR_SCREEN_PRINT },
+  { label: "Packer – Screen Print", value: UserRole.PACKER_SCREEN_PRINT },
+  { label: "Operator – Embroidery", value: UserRole.OPERATOR_EMBROIDERY },
+  { label: "Packer – Embroidery", value: UserRole.PACKER_EMBROIDERY },
+  { label: "Operator – Fulfillment", value: UserRole.OPERATOR_FULFILLMENT },
+  { label: "QC Checker", value: UserRole.QC_CHECKER },
+  { label: "Shipping", value: UserRole.SHIPPING },
+];

@@ -69,7 +69,7 @@ export default function TabLayout() {
             {profileTab}
           </>
         );
-      case UserRole.QC:
+      case UserRole.QC_CHECKER:
         return (
           <>
             {commonTabs}
@@ -82,6 +82,17 @@ export default function TabLayout() {
           <>
             {commonTabs}
             {shippingTab}
+            {profileTab}
+          </>
+        );
+      case UserRole.OPERATOR_SCREEN_PRINT:
+      case UserRole.PACKER_SCREEN_PRINT:
+      case UserRole.OPERATOR_EMBROIDERY:
+      case UserRole.PACKER_EMBROIDERY:
+      case UserRole.OPERATOR_FULFILLMENT:
+        return (
+          <>
+            {commonTabs}
             {profileTab}
           </>
         );

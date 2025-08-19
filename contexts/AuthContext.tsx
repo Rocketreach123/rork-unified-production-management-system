@@ -8,6 +8,7 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  changeRole: (role: UserRole) => Promise<void>;
 }
 
 export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
@@ -17,6 +18,14 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
   useEffect(() => {
     loadUser();
   }, []);
+
+  const persistUser = async (u: User) => {
+    try {
+      await AsyncStorage.setItem("user", JSON.stringify(u));
+    } catch (e) {
+      console.error("Persist user error", e);
+    }
+  };
 
   const loadUser = async () => {
     try {
@@ -32,7 +41,6 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
   };
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // Mock authentication - in production, this would call an API
     const mockUsers: Record<string, User> = {
       "admin@company.com": {
         id: "1",
@@ -40,57 +48,73 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
         name: "Admin User",
         role: UserRole.ADMIN,
       },
-      "screen_room@company.com": {
+      "operator_screen_print@company.com": {
         id: "2",
-        email: "screen_room@company.com",
-        name: "Screen Room Operator",
-        role: UserRole.SCREEN_ROOM,
+        email: "operator_screen_print@company.com",
+        name: "Operator – Screen Print",
+        role: UserRole.OPERATOR_SCREEN_PRINT,
       },
-      "screen_print@company.com": {
+      "packer_screen_print@company.com": {
         id: "3",
-        email: "screen_print@company.com",
-        name: "Screen Print Operator",
-        role: UserRole.SCREEN_PRINT,
+        email: "packer_screen_print@company.com",
+        name: "Packer – Screen Print",
+        role: UserRole.PACKER_SCREEN_PRINT,
       },
-      "embroidery@company.com": {
+      "operator_embroidery@company.com": {
         id: "4",
-        email: "embroidery@company.com",
-        name: "Embroidery Operator",
-        role: UserRole.EMBROIDERY,
+        email: "operator_embroidery@company.com",
+        name: "Operator – Embroidery",
+        role: UserRole.OPERATOR_EMBROIDERY,
       },
-      "fulfillment@company.com": {
+      "packer_embroidery@company.com": {
         id: "5",
-        email: "fulfillment@company.com",
-        name: "Fulfillment Operator",
-        role: UserRole.FULFILLMENT,
+        email: "packer_embroidery@company.com",
+        name: "Packer – Embroidery",
+        role: UserRole.PACKER_EMBROIDERY,
       },
-      "qc@company.com": {
+      "operator_fulfillment@company.com": {
         id: "6",
-        email: "qc@company.com",
-        name: "QC Inspector",
-        role: UserRole.QC,
+        email: "operator_fulfillment@company.com",
+        name: "Operator – Fulfillment",
+        role: UserRole.OPERATOR_FULFILLMENT,
+      },
+      "qc_checker@company.com": {
+        id: "7",
+        email: "qc_checker@company.com",
+        name: "QC Checker",
+        role: UserRole.QC_CHECKER,
       },
       "shipping@company.com": {
-        id: "7",
-        email: "shipping@company.com",
-        name: "Shipping Operator",
-        role: UserRole.SHIPPING,
-      },
-      "preproduction@company.com": {
         id: "8",
-        email: "preproduction@company.com",
-        name: "Preproduction Operator",
-        role: UserRole.PREPRODUCTION,
+        email: "shipping@company.com",
+        name: "Shipping",
+        role: UserRole.SHIPPING,
       },
     };
 
     const foundUser = mockUsers[email];
     if (foundUser && password === "password") {
       setUser(foundUser);
-      await AsyncStorage.setItem("user", JSON.stringify(foundUser));
+      await persistUser(foundUser);
       return true;
     }
     return false;
+  };
+
+  const changeRole = async (role: UserRole) => {
+    try {
+      const base: User = user ?? {
+        id: "temp",
+        email: "temp@company.com",
+        name: "Demo User",
+        role,
+      };
+      const updated: User = { ...base, role };
+      setUser(updated);
+      await persistUser(updated);
+    } catch (e) {
+      console.error("changeRole error", e);
+    }
   };
 
   const logout = async () => {
@@ -103,5 +127,6 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
     isLoading,
     login,
     logout,
+    changeRole,
   };
 });

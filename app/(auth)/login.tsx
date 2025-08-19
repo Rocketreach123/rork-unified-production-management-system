@@ -36,7 +36,17 @@ export default function LoginScreen() {
   };
 
   const quickLogin = (role: UserRole) => {
-    setEmail(`${role}@company.com`);
+    const map: Record<UserRole, string> = {
+      [UserRole.ADMIN]: "admin@company.com",
+      [UserRole.OPERATOR_SCREEN_PRINT]: "operator_screen_print@company.com",
+      [UserRole.PACKER_SCREEN_PRINT]: "packer_screen_print@company.com",
+      [UserRole.OPERATOR_EMBROIDERY]: "operator_embroidery@company.com",
+      [UserRole.PACKER_EMBROIDERY]: "packer_embroidery@company.com",
+      [UserRole.OPERATOR_FULFILLMENT]: "operator_fulfillment@company.com",
+      [UserRole.QC_CHECKER]: "qc_checker@company.com",
+      [UserRole.SHIPPING]: "shipping@company.com",
+    };
+    setEmail(map[role]);
     setPassword("password");
   };
 
@@ -103,7 +113,7 @@ export default function LoginScreen() {
                   onPress={() => quickLogin(role)}
                 >
                   <Text style={styles.roleButtonText}>
-                    {role.replace("_", " ").toUpperCase()}
+                    {String(role).replace(/_/g, " ").toUpperCase()}
                   </Text>
                 </TouchableOpacity>
               ))}

@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobContext";
 import { router } from "expo-router";
 import {
-  User,
+  User as UserIcon,
   LogOut,
   Shield,
   Clock,
@@ -19,10 +19,11 @@ import {
   Settings,
   CheckCircle,
   RotateCcw,
+  ChevronDown,
 } from "lucide-react-native";
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, changeRole } = useAuth();
   const { resetDemoData, refreshJobs } = useJobs();
   const [seeding, setSeeding] = useState<boolean>(false);
 
@@ -52,11 +53,11 @@ export default function ProfileScreen() {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
-          <User size={48} color="#6b7280" />
+          <UserIcon size={48} color="#6b7280" />
         </View>
         <Text style={styles.name}>{user?.name || "Operator"}</Text>
-        <Text style={styles.role}>
-          {user?.role.replace("_", " ").toUpperCase()}
+        <Text style={styles.role} testID="current-role-label">
+          {String(user?.role ?? '').replace(/_/g, " ").toUpperCase()}
         </Text>
         <View style={styles.badgeContainer}>
           <Shield size={16} color="#1e40af" />
@@ -95,6 +96,41 @@ export default function ProfileScreen() {
             </Text>
           </View>
         </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Switch Role (Testing)</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rolesScroll} contentContainerStyle={styles.rolesScrollContent}>
+          {[
+            "ADMIN",
+            "OPERATOR_SCREEN_PRINT",
+            "PACKER_SCREEN_PRINT",
+            "OPERATOR_EMBROIDERY",
+            "PACKER_EMBROIDERY",
+            "OPERATOR_FULFILLMENT",
+            "QC_CHECKER",
+            "SHIPPING",
+          ].map((key) => (
+            <TouchableOpacity
+              key={key}
+              style={[
+                styles.rolePill,
+                String(user?.role) === key.toLowerCase() ? styles.rolePillActive : undefined,
+              ]}
+              onPress={() => changeRole(key.toLowerCase() as any)}
+              testID={`switch-role-${key.toLowerCase()}`}
+            >
+              <Text
+                style={[
+                  styles.rolePillText,
+                  String(user?.role) === key.toLowerCase() ? styles.rolePillTextActive : undefined,
+                ]}
+              >
+                {key.replace(/_/g, " ")}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       <View style={styles.menuSection}>
@@ -207,6 +243,33 @@ const styles = StyleSheet.create({
   },
   section: {
     padding: 20,
+  },
+  rolesScroll: {
+    marginHorizontal: -4,
+  },
+  rolesScrollContent: {
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  rolePill: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#f9fafb",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  rolePillActive: {
+    backgroundColor: "#111827",
+    borderColor: "#111827",
+  },
+  rolePillText: {
+    color: "#111827",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  rolePillTextActive: {
+    color: "#ffffff",
   },
   sectionTitle: {
     fontSize: 18,

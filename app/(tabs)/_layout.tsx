@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { Home, Package, CheckCircle, Truck, User } from "lucide-react-native";
+import { Home, Package, CheckCircle, Truck, User, Boxes } from "lucide-react-native";
 import React from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { UserRole } from "@/types/auth";
@@ -49,6 +49,16 @@ export default function TabLayout() {
       />
     );
 
+    const inventoryTab = (
+      <Tabs.Screen
+        name="inventory"
+        options={{
+          title: "Inventory",
+          tabBarIcon: ({ color }) => <Boxes size={24} color={color} />,
+        }}
+      />
+    );
+
     const profileTab = (
       <Tabs.Screen
         name="profile"
@@ -66,6 +76,7 @@ export default function TabLayout() {
             {commonTabs}
             {qcTab}
             {shippingTab}
+            {inventoryTab}
             {profileTab}
           </>
         );
